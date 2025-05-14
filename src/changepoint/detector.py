@@ -278,10 +278,7 @@ class ChangePointDetector(Generic[ScalarType]):
                     f"Multiview data must have shape (n_samples, n_features), got {data.shape}"
                 )
 
-
-    def _run_single_view(
-        self, data: Array
-    ) -> Dict[str, Any]:
+    def _run_single_view(self, data: Array) -> Dict[str, Any]:
         """Run single-view detection.
 
         Args:
@@ -331,9 +328,7 @@ class ChangePointDetector(Generic[ScalarType]):
 
         return combined_results
 
-    def _run_multiview(
-        self, data: Array
-    ) -> Dict[str, Any]:
+    def _run_multiview(self, data: Array) -> Dict[str, Any]:
         """Run multiview detection.
 
         Args:

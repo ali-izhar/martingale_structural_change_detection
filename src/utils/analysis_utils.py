@@ -137,9 +137,7 @@ def analyze_multiple_trials(
     for trial_idx, trial in enumerate(individual_trials):
         trad_points = trial.get("traditional_change_points", [])
 
-        logger.debug(
-            f"Trial {trial_idx+1}: Traditional points: {trad_points}"
-        )
+        logger.debug(f"Trial {trial_idx+1}: Traditional points: {trad_points}")
 
         # For each change point, find the corresponding detection
         cp_trad_delays = []
@@ -188,7 +186,6 @@ def analyze_multiple_trials(
     logger.debug(f"All traditional detections: {all_trad_detections}")
     logger.debug(f"Average traditional detection: {avg_trad_detection}")
     logger.debug(f"Average traditional delay: {avg_trad_delay}")
-
 
     # Calculate overall detection rates
     avg_trad_detection_rate = np.mean([stat["trad_rate"] for stat in trial_statistics])
@@ -388,6 +385,7 @@ def compute_detection_rate(
             detected_count += 1
 
     return detected_count / len(change_points)
+
 
 def print_analysis_report(
     results: Dict[str, Any], report_format: str = "rounded_grid"

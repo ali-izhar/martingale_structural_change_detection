@@ -167,7 +167,9 @@ class GraphGenerator:
         # Generate change points and parameter sets
         change_points, num_changes = self._generate_change_points(params)
         param_sets = self._generate_parameter_sets(params, num_changes)
-        logger.info(f"Generated {num_changes} change points at: {[int(cp) for cp in change_points]}")
+        logger.info(
+            f"Generated {num_changes} change points at: {[int(cp) for cp in change_points]}"
+        )
 
         # Generate graphs for each segment
         all_graphs = []

@@ -51,45 +51,42 @@ def setup_plot_style():
     )
 
 
-def load_data(file_path, sheet_name="Aggregate"):
-    """Load data from an Excel file. Returns a tuple of (DataFrame with data, list of change points, metadata DataFrame)."""
+def load_data(file_path, sheet_name="Trial1"):
+    """Load data from an Excel file. Returns a tuple of (DataFrame with data, list of change points, detection details DataFrame)."""
     try:
         df = pd.read_excel(file_path, sheet_name=sheet_name)
         print(f"Successfully read sheet: {sheet_name} from {file_path}")
 
-        # Try to read change points from metadata sheet
+        # Extract change points from true_change_point column
+        change_points = []
+        if "true_change_point" in df.columns:
+            # Get timesteps where true_change_point is not 0
+            change_points = df.loc[
+                df["true_change_point"] != 0, "timestep"
+            ].values.tolist()
+            print(f"Found {len(change_points)} change points in sheet")
+
+        # Try to load detection details
+        detection_details = None
         try:
-            metadata_df = pd.read_excel(file_path, sheet_name="ChangePointMetadata")
-            change_points = metadata_df["change_point"].values.tolist()
-            print(f"Found {len(change_points)} change points in metadata")
+            detection_df = pd.read_excel(file_path, sheet_name="Detection Details")
 
-            # Print delay information if available
-            if all(
-                col in metadata_df.columns
-                for col in ["horizon_avg_delay", "traditional_avg_delay"]
-            ):
-                for i, cp in enumerate(change_points):
-                    trad_delay = metadata_df.iloc[i]["traditional_avg_delay"]
-                    horizon_delay = metadata_df.iloc[i]["horizon_avg_delay"]
-                    reduction = metadata_df.iloc[i].get(
-                        "delay_reduction", 1 - horizon_delay / trad_delay
-                    )
-                    print(
-                        f"CP {cp}: Trad delay={trad_delay:.2f}, Horizon delay={horizon_delay:.2f}, Reduction={reduction:.2%}"
-                    )
+            # Filter for the current trial
+            trial_num = int(sheet_name.replace("Trial", ""))
+            detection_details = detection_df[
+                (detection_df["Trial"] == trial_num)
+                & (detection_df["Type"] == "Traditional")
+            ]
+
+            if not detection_details.empty:
+                print(
+                    f"Found {len(detection_details)} detection details for {sheet_name}"
+                )
         except Exception as e:
-            print(f"Warning: Could not read metadata: {str(e)}")
-            metadata_df = None
-            change_points = []
+            print(f"Warning: Could not read Detection Details: {str(e)}")
+            detection_details = None
 
-            # Try to extract change points from main sheet
-            if "true_change_point" in df.columns:
-                change_points = df.loc[
-                    ~df["true_change_point"].isna(), "timestep"
-                ].values.tolist()
-                print(f"Found {len(change_points)} change points in main sheet")
-
-        return df, change_points, metadata_df
+        return df, change_points, detection_details
 
     except Exception as e:
         print(f"Error reading file: {str(e)}")
@@ -103,7 +100,7 @@ def load_trial_data(file_path):
         file_path: Path to the Excel file
 
     Returns:
-        tuple: (list of DataFrames for trials, list of change points, metadata DataFrame)
+        tuple: (list of DataFrames for trials, list of change points, detection details DataFrame)
     """
     try:
         excel = pd.ExcelFile(file_path)
@@ -112,54 +109,60 @@ def load_trial_data(file_path):
         ]
         print(f"Found {len(trial_sheets)} trial sheets: {trial_sheets}")
 
-        # Load change point metadata if available
+        # Try to load detection details
+        detection_details = None
         try:
-            metadata_df = pd.read_excel(file_path, sheet_name="ChangePointMetadata")
-            change_points = metadata_df["change_point"].values.tolist()
-            print(f"Found {len(change_points)} change points in metadata")
+            detection_details = pd.read_excel(file_path, sheet_name="Detection Details")
+            detection_details = detection_details[
+                detection_details["Type"] == "Traditional"
+            ]
+            print(f"Found {len(detection_details)} traditional detection details")
         except Exception as e:
-            print(f"Warning: Could not read metadata: {str(e)}")
-            metadata_df = None
-            change_points = []
+            print(f"Warning: Could not read Detection Details: {str(e)}")
 
         # Load each trial sheet
         trial_dfs = []
+        all_change_points = []
+
         for sheet in trial_sheets:
             df = pd.read_excel(file_path, sheet_name=sheet)
             trial_dfs.append(df)
 
-            # If we don't have change points yet, try to get them from this sheet
-            if not change_points and "true_change_point" in df.columns:
-                change_points = df.loc[
-                    ~df["true_change_point"].isna(), "timestep"
+            # Extract change points from true_change_point column
+            if "true_change_point" in df.columns:
+                # Get timesteps where true_change_point is not 0
+                sheet_change_points = df.loc[
+                    df["true_change_point"] != 0, "timestep"
                 ].values.tolist()
+                all_change_points.extend(sheet_change_points)
 
-        return trial_dfs, change_points, metadata_df
+        # Remove duplicates and sort
+        change_points = sorted(set(all_change_points))
+        print(
+            f"Found {len(change_points)} unique change points across all trial sheets"
+        )
+
+        return trial_dfs, change_points, detection_details
 
     except Exception as e:
         print(f"Error loading trial data: {str(e)}")
         return [], [], None
 
 
-def get_feature_cols(
-    df, prefix="individual_traditional_martingales_feature", suffix="_mean"
-):
-    """Extract feature column names from DataFrame based on prefix and suffix.
+def get_feature_cols(df, prefix="individual_traditional_martingales_feature"):
+    """Extract feature column names from DataFrame based on prefix.
 
     Args:
         df: DataFrame containing the data
         prefix: Prefix of feature columns
-        suffix: Suffix of feature columns
 
     Returns:
         list: Feature column names
     """
-    feature_cols = [
-        col for col in df.columns if col.startswith(prefix) and col.endswith(suffix)
-    ]
+    feature_cols = [col for col in df.columns if col.startswith(prefix)]
 
     # Sort by feature number
-    feature_cols.sort(key=lambda x: int(x.split(prefix)[1].split("_")[0]))
+    feature_cols.sort(key=lambda x: int(x.split(prefix)[1]))
 
     return feature_cols
 
@@ -176,7 +179,7 @@ def get_display_names(feature_cols):
     display_names = []
     for col in feature_cols:
         # Extract feature ID
-        feature_id = col.split("feature")[1].split("_")[0]
+        feature_id = col.split("feature")[1]
         # Get display name from mapping or use default
         display_name = FEATURE_NAMES.get(feature_id, f"Feature {feature_id}")
         display_names.append(display_name)
@@ -184,14 +187,25 @@ def get_display_names(feature_cols):
     return display_names
 
 
-def compute_shap_values(df, feature_cols, sum_col, threshold=50.0, timesteps=None):
+def compute_shap_values(
+    df,
+    feature_cols,
+    sum_col,
+    threshold=50.0,
+    timesteps=None,
+    detection_details=None,
+    current_trial=None,
+):
     """Compute SHAP values for feature importance analysis.
 
     Args:
         df: DataFrame containing martingale data
         feature_cols: List of column names for individual feature martingales
         sum_col: Column name for sum martingale
+        threshold: Detection threshold value
         timesteps: Optional array of timesteps
+        detection_details: DataFrame with detection information
+        current_trial: Current trial number
 
     Returns:
         tuple: (SHAP values, feature contributions at detection points)
@@ -248,19 +262,35 @@ def compute_shap_values(df, feature_cols, sum_col, threshold=50.0, timesteps=Non
         for i, col in enumerate(X.columns):
             shap_values[:, i] = X[col].values * model.coef_[i]
 
-    # Find detection points (threshold crossings)
+    # Find detection points from Detection Details or threshold crossings
     detection_indices = []
 
-    for i in range(1, len(df)):
-        if df[sum_col].iloc[i - 1] <= threshold and df[sum_col].iloc[i] > threshold:
-            detection_indices.append(i)
+    # First try to use Detection Details if available
+    if detection_details is not None and not detection_details.empty:
+        trial_details = detection_details
+        if current_trial is not None:
+            trial_details = detection_details[
+                detection_details["Trial"] == current_trial
+            ]
 
-    # If no threshold crossings, find peaks after change points
+        for _, row in trial_details.iterrows():
+            detection_idx = row["Detection Index"]
+            if detection_idx in df["timestep"].values:
+                idx = df.index[df["timestep"] == detection_idx][0]
+                detection_indices.append(idx)
+
+    # If no Detection Details, check for threshold crossings
+    if not detection_indices:
+        for i in range(1, len(df)):
+            if df[sum_col].iloc[i - 1] <= threshold and df[sum_col].iloc[i] > threshold:
+                detection_indices.append(i)
+
+    # If still no detection points, find peaks after change points
     if not detection_indices:
         change_points = []
         if "true_change_point" in df.columns:
             change_points = df.loc[
-                ~df["true_change_point"].isna(), "timestep"
+                df["true_change_point"] != 0, "timestep"
             ].values.tolist()
 
         if change_points:
@@ -378,28 +408,28 @@ def plot_shap_waterfall(shap_values, X, feature_names, output_path, sample_idx=N
 
 
 def plot_shap_over_time(
-    shap_values_trad,
-    shap_values_horizon,
+    shap_values,
     df,
     feature_cols,
-    trad_sum_col,
-    horizon_sum_col,
+    sum_col,
     change_points,
     threshold,
     output_path,
+    detection_details=None,
+    current_trial=None,
 ):
-    """Create visualization of SHAP values over time with annotated change points for both traditional and horizon martingales.
+    """Create visualization of SHAP values over time with annotated change points.
 
     Args:
-        shap_values_trad: SHAP values for traditional martingales
-        shap_values_horizon: SHAP values for horizon martingales
+        shap_values: SHAP values for traditional martingales
         df: DataFrame containing martingale data
         feature_cols: List of column names for individual feature martingales
-        trad_sum_col: Column name for traditional sum martingale
-        horizon_sum_col: Column name for horizon sum martingale
+        sum_col: Column name for traditional sum martingale
         change_points: List of change points
         threshold: Detection threshold
         output_path: Path to save the plot
+        detection_details: DataFrame with detection information
+        current_trial: Current trial number
     """
     # Get display names for features
     feature_names = get_display_names(feature_cols)
@@ -412,119 +442,89 @@ def plot_shap_over_time(
     # Create color palette
     colors = plt.cm.tab10(np.linspace(0, 1, len(feature_cols)))
 
-    # Create figure with 2x2 grid
+    # Create figure with 2 panels (instead of 4)
     fig, axs = plt.subplots(
         2,
-        2,
-        figsize=(16, 10),
-        sharex="col",
+        1,
+        figsize=(12, 10),
+        sharex=True,
         gridspec_kw={
             "height_ratios": [1, 1],
-            "width_ratios": [1, 1],
             "hspace": 0.1,
-            "wspace": 0.15,
         },
     )
 
-    # Panel 1: Traditional SHAP Values (Top Left)
+    # Panel 1: Traditional SHAP Values (Top)
     for i, col in enumerate(feature_cols):
-        axs[0, 0].plot(
+        axs[0].plot(
             timesteps,
-            shap_values_trad[:, i],
+            shap_values[:, i],
             label=feature_names[i],
             color=colors[i],
             alpha=0.7,
             linewidth=1.2,
         )
 
-    # Panel 2: Horizon SHAP Values (Top Right)
-    for i, col in enumerate(feature_cols):
-        axs[0, 1].plot(
-            timesteps,
-            shap_values_horizon[:, i],
-            label=feature_names[i],
-            color=colors[i],
-            alpha=0.7,
-            linewidth=1.2,
-        )
-
-    # Mark change points on both top panels
+    # Mark change points
     if change_points:
         for cp in change_points:
-            axs[0, 0].axvline(
-                x=cp, color="gray", linestyle="--", alpha=0.8, linewidth=1.5
-            )
-            axs[0, 1].axvline(
-                x=cp, color="gray", linestyle="--", alpha=0.8, linewidth=1.5
-            )
+            axs[0].axvline(x=cp, color="gray", linestyle="--", alpha=0.8, linewidth=1.5)
 
-    # Set titles and labels for top panels
-    axs[0, 0].set_title("Traditional Feature Contributions (SHAP Values)", fontsize=16)
-    axs[0, 1].set_title("Horizon Feature Contributions (SHAP Values)", fontsize=16)
-    axs[0, 0].set_ylabel("SHAP Value", fontsize=14)
-    axs[0, 1].set_ylabel("SHAP Value", fontsize=14)
+    # Set titles and labels
+    axs[0].set_title("Traditional Feature Contributions (SHAP Values)", fontsize=16)
+    axs[0].set_ylabel("SHAP Value", fontsize=14)
 
-    # Add legend to top right panel only
-    axs[0, 1].legend(loc="upper right", fontsize=11)
+    # Add legend
+    axs[0].legend(loc="upper right", fontsize=11)
 
-    # Add grids
-    axs[0, 0].grid(True, alpha=0.3)
-    axs[0, 1].grid(True, alpha=0.3)
+    # Add grid
+    axs[0].grid(True, alpha=0.3)
 
-    # Calculate feature contributions for both traditional and horizon martingales
-    trad_contributions = np.zeros((len(df), len(feature_cols)))
-    horizon_contributions = np.zeros((len(df), len(feature_cols)))
+    # Calculate feature contributions
+    contributions = np.zeros((len(df), len(feature_cols)))
+    detection_indices = []
 
-    trad_detection_indices = []
-    horizon_detection_indices = []
+    # Find detection points from Detection Details if available
+    if detection_details is not None and not detection_details.empty:
+        trial_details = detection_details
+        if current_trial is not None:
+            trial_details = detection_details[
+                detection_details["Trial"] == current_trial
+            ]
 
-    # Find detection points (threshold crossings) for traditional
-    for i in range(1, len(df)):
-        if (
-            df[trad_sum_col].iloc[i - 1] <= threshold
-            and df[trad_sum_col].iloc[i] > threshold
-        ):
-            trad_detection_indices.append(i)
-
-    # Find detection points for horizon
-    for i in range(1, len(df)):
-        if (
-            df[horizon_sum_col].iloc[i - 1] <= threshold
-            and df[horizon_sum_col].iloc[i] > threshold
-        ):
-            horizon_detection_indices.append(i)
+        for _, row in trial_details.iterrows():
+            detection_idx = row["Detection Index"]
+            if detection_idx in df["timestep"].values:
+                idx = df.index[df["timestep"] == detection_idx][0]
+                detection_indices.append(idx)
+    # Otherwise find threshold crossings
+    else:
+        # Find detection points (threshold crossings)
+        for i in range(1, len(df)):
+            if df[sum_col].iloc[i - 1] <= threshold and df[sum_col].iloc[i] > threshold:
+                detection_indices.append(i)
 
     # If no threshold crossings, find peaks after change points
-    if not trad_detection_indices and change_points:
+    if not detection_indices and change_points:
         for cp in change_points:
             cp_idx = np.argmin(np.abs(timesteps - cp))
             window_start = cp_idx
             window_end = min(len(df), cp_idx + 10)
 
             if window_start < window_end:
-                max_idx = df[trad_sum_col].iloc[window_start:window_end].idxmax()
-                trad_detection_indices.append(max_idx)
+                max_idx = df[sum_col].iloc[window_start:window_end].idxmax()
+                detection_indices.append(max_idx)
 
-    if not horizon_detection_indices and change_points:
-        for cp in change_points:
-            cp_idx = np.argmin(np.abs(timesteps - cp))
-            window_start = cp_idx
-            window_end = min(len(df), cp_idx + 10)
-
-            if window_start < window_end:
-                max_idx = df[horizon_sum_col].iloc[window_start:window_end].idxmax()
-                horizon_detection_indices.append(max_idx)
-
-    # Process traditional detection points
-    if trad_detection_indices:
-        for detection_idx in trad_detection_indices:
+    # Process detection points
+    if detection_indices:
+        for detection_idx in detection_indices:
             feature_values = df[feature_cols].iloc[detection_idx].values
             total = sum(feature_values)
 
             if total > 0:
                 # Contributions as percentages
                 for j, val in enumerate(feature_values):
-                    trad_contributions[detection_idx, j] = val / total
+                    contributions[detection_idx, j] = val / total
 
                 # Add decaying contributions around detection point
                 window = 2
@@ -538,151 +538,117 @@ def plot_shap_over_time(
                         val_sum = sum(vals)
                         if val_sum > 0:
                             for j, val in enumerate(vals):
-                                trad_contributions[i, j] = (val / val_sum) * decay
+                                contributions[i, j] = (val / val_sum) * decay
 
-    # Process horizon detection points
-    if horizon_detection_indices:
-        for detection_idx in horizon_detection_indices:
-            feature_values = df[feature_cols].iloc[detection_idx].values
-            total = sum(feature_values)
+    # Create legend labels with percentages
+    feature_percentages = {}
+    detection_timestamps = []
 
-            if total > 0:
-                # Contributions as percentages
-                for j, val in enumerate(feature_values):
-                    horizon_contributions[detection_idx, j] = val / total
-
-                # Add decaying contributions around detection point
-                window = 2
-                for i in range(
-                    max(0, detection_idx - window),
-                    min(len(df), detection_idx + window + 1),
-                ):
-                    if i != detection_idx:
-                        decay = 0.2 ** abs(i - detection_idx)
-                        vals = df[feature_cols].iloc[i].values
-                        val_sum = sum(vals)
-                        if val_sum > 0:
-                            for j, val in enumerate(vals):
-                                horizon_contributions[i, j] = (val / val_sum) * decay
-
-    # Create legend labels with percentages for traditional
-    trad_feature_percentages = {}
-    trad_detection_timestamps = []
-
-    if trad_detection_indices and len(trad_detection_indices) > 0:
-        for i, idx in enumerate(trad_detection_indices):
+    if detection_indices and len(detection_indices) > 0:
+        for i, idx in enumerate(detection_indices):
             if 0 <= idx < len(timesteps):
-                trad_detection_timestamps.append(timesteps[idx])
+                detection_timestamps.append(timesteps[idx])
                 for j, col in enumerate(feature_cols):
-                    if j not in trad_feature_percentages:
-                        trad_feature_percentages[j] = []
-                    trad_feature_percentages[j].append(trad_contributions[idx, j] * 100)
-
-    # Create legend labels for horizon
-    horizon_feature_percentages = {}
-    horizon_detection_timestamps = []
-
-    if horizon_detection_indices and len(horizon_detection_indices) > 0:
-        for i, idx in enumerate(horizon_detection_indices):
-            if 0 <= idx < len(timesteps):
-                horizon_detection_timestamps.append(timesteps[idx])
-                for j, col in enumerate(feature_cols):
-                    if j not in horizon_feature_percentages:
-                        horizon_feature_percentages[j] = []
-                    horizon_feature_percentages[j].append(
-                        horizon_contributions[idx, j] * 100
-                    )
+                    if j not in feature_percentages:
+                        feature_percentages[j] = []
+                    feature_percentages[j].append(contributions[idx, j] * 100)
 
     # Format legend labels
-    trad_legend_labels = []
+    legend_labels = []
     for i, name in enumerate(feature_names):
-        if i in trad_feature_percentages and len(trad_feature_percentages[i]) > 0:
-            if len(trad_feature_percentages[i]) == 1:
-                pct_str = f"{trad_feature_percentages[i][0]:.1f}%"
-            elif len(trad_feature_percentages[i]) == 2:
-                pct_str = f"{trad_feature_percentages[i][0]:.1f}%, {trad_feature_percentages[i][1]:.1f}%"
+        if i in feature_percentages and len(feature_percentages[i]) > 0:
+            if len(feature_percentages[i]) == 1:
+                pct_str = f"{feature_percentages[i][0]:.1f}%"
+            elif len(feature_percentages[i]) == 2:
+                pct_str = f"{feature_percentages[i][0]:.1f}%, {feature_percentages[i][1]:.1f}%"
             else:
-                pct_str = ", ".join(
-                    [f"{pct:.1f}%" for pct in trad_feature_percentages[i]]
-                )
+                pct_str = ", ".join([f"{pct:.1f}%" for pct in feature_percentages[i]])
 
-            trad_legend_labels.append(f"{name} ({pct_str})")
+            legend_labels.append(f"{name} ({pct_str})")
         else:
-            trad_legend_labels.append(name)
+            legend_labels.append(name)
 
-    horizon_legend_labels = []
-    for i, name in enumerate(feature_names):
-        if i in horizon_feature_percentages and len(horizon_feature_percentages[i]) > 0:
-            if len(horizon_feature_percentages[i]) == 1:
-                pct_str = f"{horizon_feature_percentages[i][0]:.1f}%"
-            elif len(horizon_feature_percentages[i]) == 2:
-                pct_str = f"{horizon_feature_percentages[i][0]:.1f}%, {horizon_feature_percentages[i][1]:.1f}%"
-            else:
-                pct_str = ", ".join(
-                    [f"{pct:.1f}%" for pct in horizon_feature_percentages[i]]
-                )
-
-            horizon_legend_labels.append(f"{name} ({pct_str})")
-        else:
-            horizon_legend_labels.append(name)
-
-    # Plot traditional feature contributions (Bottom Left)
+    # Plot feature contributions (Bottom panel)
     for i, col in enumerate(feature_cols):
-        axs[1, 0].plot(
+        axs[1].plot(
             timesteps,
-            trad_contributions[:, i],
-            label=trad_legend_labels[i],
+            contributions[:, i],
+            label=legend_labels[i],
             color=colors[i],
             alpha=0.7,
             linewidth=1.2,
         )
 
-    # Plot horizon feature contributions (Bottom Right)
-    for i, col in enumerate(feature_cols):
-        axs[1, 1].plot(
-            timesteps,
-            horizon_contributions[:, i],
-            label=horizon_legend_labels[i],
-            color=colors[i],
-            alpha=0.7,
-            linewidth=1.2,
-        )
-
-    # Mark change points on bottom panels
+    # Mark change points
     if change_points:
         for cp in change_points:
-            axs[1, 0].axvline(
-                x=cp, color="gray", linestyle="--", alpha=0.8, linewidth=1.5
-            )
-            axs[1, 1].axvline(
-                x=cp, color="gray", linestyle="--", alpha=0.8, linewidth=1.5
+            axs[1].axvline(x=cp, color="gray", linestyle="--", alpha=0.8, linewidth=1.5)
+
+            # Add change point label
+            axs[1].annotate(
+                f"CP {cp}",
+                xy=(cp, 0),
+                xytext=(cp, -0.05),
+                color="gray",
+                fontweight="bold",
+                fontsize=10,
+                ha="center",
+                va="top",
             )
 
     # Mark detection points
-    for idx in trad_detection_indices:
+    for idx in detection_indices:
         if 0 <= idx < len(timesteps):
             dp = timesteps[idx]
-            axs[1, 0].axvline(
+            axs[1].axvline(
                 x=dp, color="purple", linestyle=":", alpha=0.8, linewidth=1.5
             )
 
-    for idx in horizon_detection_indices:
-        if 0 <= idx < len(timesteps):
-            dp = timesteps[idx]
-            axs[1, 1].axvline(
-                x=dp, color="purple", linestyle=":", alpha=0.8, linewidth=1.5
-            )
+            # If we have detection details, add more information
+            if detection_details is not None and not detection_details.empty:
+                trial_details = detection_details
+                if current_trial is not None:
+                    trial_details = detection_details[
+                        detection_details["Trial"] == current_trial
+                    ]
 
-    # Set titles and labels for bottom panels
-    axs[1, 0].set_title("Traditional Feature Contributions", fontsize=16)
-    axs[1, 1].set_title("Horizon Feature Contributions", fontsize=16)
-    axs[1, 0].set_xlabel("Timestep", fontsize=14)
-    axs[1, 1].set_xlabel("Timestep", fontsize=14)
-    axs[1, 0].set_ylabel("Feature Contribution (0-1)", fontsize=14)
-    axs[1, 1].set_ylabel("Feature Contribution (0-1)", fontsize=14)
+                for _, row in trial_details.iterrows():
+                    if row["Detection Index"] == dp:
+                        nearest_cp = row["Nearest True CP"]
+                        distance = row["Distance to CP"]
+                        axs[1].annotate(
+                            f"Detection (CP={nearest_cp}, d={distance})",
+                            xy=(dp, 0.5),
+                            xytext=(dp, 0.6),
+                            color="purple",
+                            fontweight="bold",
+                            fontsize=10,
+                            ha="center",
+                            arrowprops=dict(arrowstyle="->", color="purple"),
+                            bbox=dict(boxstyle="round,pad=0.3", fc="white", alpha=0.8),
+                        )
+                        break
+            else:
+                # Simple detection label
+                axs[1].annotate(
+                    "Detection",
+                    xy=(dp, 0.5),
+                    xytext=(dp, 0.6),
+                    color="purple",
+                    fontweight="bold",
+                    fontsize=10,
+                    ha="center",
+                    arrowprops=dict(arrowstyle="->", color="purple"),
+                    bbox=dict(boxstyle="round,pad=0.3", fc="white", alpha=0.8),
+                )
 
-    # Create custom legends with more space
-    axs[1, 0].legend(
+    # Set titles and labels for bottom panel
+    axs[1].set_title("Traditional Feature Contributions", fontsize=16)
+    axs[1].set_xlabel("Timestep", fontsize=14)
+    axs[1].set_ylabel("Feature Contribution (0-1)", fontsize=14)
+
+    # Create custom legend with more space
+    axs[1].legend(
         loc="upper right",
         fontsize=10,
         framealpha=0.9,
@@ -691,81 +657,53 @@ def plot_shap_over_time(
         labelspacing=0.4,
     )
 
-    axs[1, 1].legend(
-        loc="upper right",
-        fontsize=10,
-        framealpha=0.9,
-        handlelength=1,
-        handleheight=1.5,
-        labelspacing=0.4,
-    )
-
-    # Add grids to bottom panels
-    axs[1, 0].grid(True, alpha=0.3)
-    axs[1, 1].grid(True, alpha=0.3)
+    # Add grid to bottom panel
+    axs[1].grid(True, alpha=0.3)
 
     # Set common x-axis limits
     x_min, x_max = min(timesteps), max(timesteps)
-    x_limits = (x_min, 205)  # Same as in original code
+    x_limits = (x_min, x_max + int(0.05 * (x_max - x_min)))
 
-    # Set common x-ticks
-    x_ticks = np.array([0, 40, 80, 120, 160, 200])
+    # Reduce the number of x-axis ticks to avoid crowding
+    max_ticks = 10  # Maximum number of ticks to show
+    step = max(1, int((x_max - x_min) / max_ticks))
+    ticks = list(range(int(x_min), int(x_max) + 1, step))
 
-    for row in axs:
-        for ax in row:
-            ax.set_xlim(x_limits)
-            ax.set_xticks(x_ticks)
-            ax.set_xticklabels([str(int(tick)) for tick in ax.get_xticks()])
+    for ax in axs:
+        ax.set_xlim(x_limits)
+        ax.set_xticks(ticks)
+        ax.set_xticklabels([str(int(tick)) for tick in ticks])
+
+    # Add a title with the trial number if available
+    if current_trial is not None:
+        plt.suptitle(
+            f"Trial {current_trial} - Feature Contributions Analysis", fontsize=18
+        )
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
-    print(f"Saved SHAP comparison plot to {output_path}")
+    print(f"Saved SHAP analysis plot to {output_path}")
 
-    # Generate feature contribution reports
-    trad_contributions_list = []
-    horizon_contributions_list = []
+    # Generate feature contribution report
+    contributions_list = []
 
-    # Traditional contributions
-    if trad_detection_indices:
-        for idx in trad_detection_indices:
+    if detection_indices:
+        for idx in detection_indices:
             if 0 <= idx < len(df):
                 detection_time = timesteps[idx]
                 contrib_data = {
                     "Feature": feature_names,
                     "Martingale Value": df[feature_cols].iloc[idx].values,
-                    "Contribution %": trad_contributions[idx] * 100,
+                    "Contribution %": contributions[idx] * 100,
                     "Detection Point": detection_time,
-                    "Type": "Traditional",
                 }
                 contrib_df = pd.DataFrame(contrib_data)
                 contrib_df = contrib_df.sort_values("Contribution %", ascending=False)
-                trad_contributions_list.append(contrib_df)
+                contributions_list.append(contrib_df)
 
-    # Horizon contributions
-    if horizon_detection_indices:
-        for idx in horizon_detection_indices:
-            if 0 <= idx < len(df):
-                detection_time = timesteps[idx]
-                contrib_data = {
-                    "Feature": feature_names,
-                    "Martingale Value": df[feature_cols].iloc[idx].values,
-                    "Contribution %": horizon_contributions[idx] * 100,
-                    "Detection Point": detection_time,
-                    "Type": "Horizon",
-                }
-                contrib_df = pd.DataFrame(contrib_data)
-                contrib_df = contrib_df.sort_values("Contribution %", ascending=False)
-                horizon_contributions_list.append(contrib_df)
-
-    # Combine all contributions
-    all_contributions = []
-    all_contributions.extend(trad_contributions_list)
-    all_contributions.extend(horizon_contributions_list)
-
-    if all_contributions:
-        combined_df = pd.concat(all_contributions)
-        return combined_df
+    if contributions_list:
+        return pd.concat(contributions_list)
     else:
         return pd.DataFrame()
 
@@ -814,7 +752,7 @@ def plot_feature_contributions(contributions_df, output_path):
 
 
 def analyze_shap(
-    file_path, sheet_name="Aggregate", output_dir="results/shap", threshold=50.0
+    file_path, sheet_name="Trial1", output_dir="results/shap", threshold=50.0
 ):
     """Main function to analyze SHAP values and create visualizations.
 
@@ -826,134 +764,91 @@ def analyze_shap(
     """
     setup_plot_style()
     os.makedirs(output_dir, exist_ok=True)
-    df, change_points, metadata_df = load_data(file_path, sheet_name)
+
+    # Get current trial number
+    current_trial = None
+    if sheet_name.startswith("Trial"):
+        try:
+            current_trial = int(sheet_name.replace("Trial", ""))
+        except ValueError:
+            pass
+
+    df, change_points, detection_details = load_data(file_path, sheet_name)
 
     if df is None:
         return
 
-    # Get feature columns (traditional)
-    trad_feature_cols = get_feature_cols(
-        df, prefix="individual_traditional_martingales_feature", suffix="_mean"
+    # Get feature columns
+    feature_cols = get_feature_cols(
+        df, prefix="individual_traditional_martingales_feature"
     )
 
-    # Get feature columns (horizon)
-    horizon_feature_cols = get_feature_cols(
-        df, prefix="individual_horizon_martingales_feature", suffix="_mean"
-    )
-
-    # Use traditional columns if horizon ones aren't found (compatibility)
-    if not horizon_feature_cols:
-        print(
-            "No horizon feature columns found, using traditional columns for both analyses"
-        )
-        horizon_feature_cols = trad_feature_cols
-
-    if not trad_feature_cols:
+    if not feature_cols:
         print("No feature columns found in the data")
         return
 
-    # Get display names (should be the same for both types)
-    feature_names = get_display_names(trad_feature_cols)
+    # Get display names
+    feature_names = get_display_names(feature_cols)
 
-    # Determine sum column names
-    trad_sum_col = next(
-        (
-            col
-            for col in df.columns
-            if col
-            in ["traditional_sum_martingales_mean", "traditional_sum_martingales"]
-        ),
-        None,
-    )
+    # Determine sum column name
+    sum_col = "traditional_sum_martingales"
 
-    horizon_sum_col = next(
-        (
-            col
-            for col in df.columns
-            if col in ["horizon_sum_martingales_mean", "horizon_sum_martingales"]
-        ),
-        None,
-    )
-
-    if trad_sum_col is None:
+    if sum_col not in df.columns:
         print("Traditional sum martingale column not found in the data")
         return
 
-    if horizon_sum_col is None:
-        print("Horizon sum martingale column not found in the data")
-        return
-
-    print(
-        f"Analyzing {len(trad_feature_cols)} features with traditional: {trad_sum_col} and horizon: {horizon_sum_col}"
-    )
+    print(f"Analyzing {len(feature_cols)} features with {sum_col}")
 
     # Use provided threshold
     print(f"Using threshold: {threshold}")
 
-    # Compute SHAP values for traditional martingales
-    trad_shap_values, trad_contributions_df = compute_shap_values(
-        df=df, feature_cols=trad_feature_cols, sum_col=trad_sum_col, threshold=threshold
-    )
-
-    # Compute SHAP values for horizon martingales
-    horizon_shap_values, horizon_contributions_df = compute_shap_values(
+    # Compute SHAP values
+    shap_values, contributions_df = compute_shap_values(
         df=df,
-        feature_cols=horizon_feature_cols,
-        sum_col=horizon_sum_col,
+        feature_cols=feature_cols,
+        sum_col=sum_col,
         threshold=threshold,
+        detection_details=detection_details,
+        current_trial=current_trial,
     )
 
-    # Create SHAP summary plots
+    # Create SHAP summary plot
     plot_shap_summary(
-        shap_values=trad_shap_values,
-        X=df[trad_feature_cols],
+        shap_values=shap_values,
+        X=df[feature_cols],
         feature_names=feature_names,
-        output_path=os.path.join(output_dir, "traditional_shap_summary.png"),
+        output_path=os.path.join(output_dir, f"{sheet_name}_shap_summary.png"),
     )
 
-    plot_shap_summary(
-        shap_values=horizon_shap_values,
-        X=df[horizon_feature_cols],
-        feature_names=feature_names,
-        output_path=os.path.join(output_dir, "horizon_shap_summary.png"),
-    )
-
-    # Create comparative SHAP over time plot (2x2 grid)
+    # Create SHAP over time plot
     contributions_df = plot_shap_over_time(
-        shap_values_trad=trad_shap_values,
-        shap_values_horizon=horizon_shap_values,
+        shap_values=shap_values,
         df=df,
-        feature_cols=trad_feature_cols,
-        trad_sum_col=trad_sum_col,
-        horizon_sum_col=horizon_sum_col,
+        feature_cols=feature_cols,
+        sum_col=sum_col,
         change_points=change_points,
         threshold=threshold,
-        output_path=os.path.join(output_dir, "comparative_shap.png"),
+        output_path=os.path.join(output_dir, f"{sheet_name}_shap_analysis.png"),
+        detection_details=detection_details,
+        current_trial=current_trial,
     )
 
-    # Create feature contributions plots for each type
-    if not trad_contributions_df.empty:
+    # Create feature contributions plot
+    if not contributions_df.empty:
         plot_feature_contributions(
-            contributions_df=trad_contributions_df,
+            contributions_df=contributions_df,
             output_path=os.path.join(
-                output_dir, "traditional_feature_contributions.png"
+                output_dir, f"{sheet_name}_feature_contributions.png"
             ),
         )
 
-    if not horizon_contributions_df.empty:
-        plot_feature_contributions(
-            contributions_df=horizon_contributions_df,
-            output_path=os.path.join(output_dir, "horizon_feature_contributions.png"),
-        )
-
-    # Save combined contributions to CSV
-    if not contributions_df.empty:
+        # Save contributions to CSV
         contributions_df.to_csv(
-            os.path.join(output_dir, "comparative_feature_contributions.csv"),
+            os.path.join(output_dir, f"{sheet_name}_feature_contributions.csv"),
             index=False,
         )
         print(
-            f"Saved feature contributions to {os.path.join(output_dir, 'comparative_feature_contributions.csv')}"
+            f"Saved feature contributions to {os.path.join(output_dir, f'{sheet_name}_feature_contributions.csv')}"
         )
 
     print(f"SHAP analysis complete. Results saved to {output_dir}")
@@ -969,7 +864,7 @@ if __name__ == "__main__":
         "--file_path", "-f", type=str, required=True, help="Path to Excel file"
     )
     parser.add_argument(
-        "--sheet_name", "-s", type=str, default="Aggregate", help="Sheet name"
+        "--sheet_name", "-s", type=str, default="Trial1", help="Sheet name"
     )
     parser.add_argument(
         "--output_dir", "-o", type=str, default="results/shap", help="Output directory"

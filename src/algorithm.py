@@ -189,9 +189,7 @@ class GraphChangeDetection:
         features_array = np.array(features_numeric)
         return features_array, features_raw
 
-    def _run_detection_trials(
-        self, features_normalized, true_change_points
-    ):
+    def _run_detection_trials(self, features_normalized, true_change_points):
         """Run multiple trials of the detector.
 
         Args:

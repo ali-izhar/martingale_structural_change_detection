@@ -1,14 +1,18 @@
 # Change Point Detection in Dynamic Networks
 
-A robust framework for detecting and explaining significant structural changes in dynamic network data using martingale-based methods with explainable AI integration.
+A robust framework for detecting and explaining significant structural changes in dynamic networks using martingale-based methods with explainable AI integration.
 
 ## Overview
 
-This project implements a comprehensive pipeline for detecting changes in the underlying structure of evolving networks.
+This project implements a comprehensive pipeline for detecting changes in the underlying structure of evolving networks. The approach leverages martingale-based sequential analysis to detect anomalies in network structure features.
 
 Key features:
 - Multiple graph models (SBM, Barabási-Albert, Watts-Strogatz, Erdős-Rényi)
 - Advanced martingale-based detection with various betting functions
+- Explainable AI using SHAP (SHapley Additive exPlanations) for result interpretation
+- Comprehensive visualization suite for analysis and result presentation
+
+![Overview Explanation](assets/overview-explanation.png)
 
 ## Installation
 
@@ -62,26 +66,38 @@ Lower detection threshold and use Euclidean distance:
 python src/run.py -c src/configs/algorithm.yaml -l 40 -d euclidean
 ```
 
-### Example 
-```python
-python .\src\run.py --c .\src\configs\algorithm.yaml
-2025-05-14 03:29:41 - __main__ - INFO - Using configuration file: .\src\configs\algorithm.yaml
-2025-05-14 03:29:41 - src.algorithm - INFO - STEP 1: Setting up output directory
-2025-05-14 03:29:41 - src.algorithm - INFO - STEP 2: Generating graph sequence
-2025-05-14 03:29:41 - src.graph.generator - INFO - Initialized generator for sbm model
-2025-05-14 03:29:41 - src.graph.generator - INFO - Generated 2 change points at: [40, 160]
-2025-05-14 03:29:41 - src.algorithm - INFO - Generated sequence with 200 graphs and 2 change points at: [40, 160]
-2025-05-14 03:29:41 - src.algorithm - INFO - STEP 3: Extracting features
-2025-05-14 03:29:46 - src.algorithm - INFO - Extracted 8 features across 200 timesteps
-2025-05-14 03:29:46 - src.algorithm - INFO - STEP 4: Normalizing features
-2025-05-14 03:29:46 - src.algorithm - INFO - STEP 5: Running detection trials
-2025-05-14 03:29:46 - src.algorithm - INFO - Running 1 detection trials with varying algorithm seeds
-2025-05-14 03:29:46 - src.algorithm - INFO - Running trial 1/1 with seed 1608637542
-2025-05-14 03:29:51 - src.algorithm - INFO - Completed 1/1 trials successfully
-2025-05-14 03:29:51 - src.algorithm - INFO - STEP 7: Exporting results to CSV
-2025-05-14 03:29:52 - src.utils.output_manager - INFO - Results saved to results\sbm_mahalanobis_mixture_20250514_032941\detection_results.xlsx
-2025-05-14 03:29:52 - src.algorithm - INFO - STEP 8: Preparing result data
-2025-05-14 03:29:52 - src.algorithm - INFO - Pipeline execution completed successfully
+## Workflow and Results
+
+### Example Run
+
+Here's a typical workflow when running the detection pipeline:
+
+```
+python .\src\run.py -c .\src\configs\algorithm.yaml
+2025-05-14 16:24:54 - __main__ - INFO - Using configuration file: .\src\configs\algorithm.yaml
+2025-05-14 16:24:54 - src.algorithm - INFO - STEP 1: Setting up output directory
+2025-05-14 16:24:54 - src.algorithm - INFO - STEP 2: Generating graph sequence
+2025-05-14 16:24:54 - src.graph.generator - INFO - Initialized generator for sbm model
+2025-05-14 16:24:54 - src.graph.generator - INFO - Generated 2 change points at: [80, 160]
+2025-05-14 16:24:54 - src.algorithm - INFO - Generated sequence with 200 graphs and 2 change points at: [80, 160]
+2025-05-14 16:24:54 - src.algorithm - INFO - STEP 3: Extracting features
+2025-05-14 16:24:59 - src.algorithm - INFO - Extracted 8 features across 200 timesteps
+2025-05-14 16:24:59 - src.algorithm - INFO - STEP 4: Normalizing features
+2025-05-14 16:24:59 - src.algorithm - INFO - STEP 5: Running detection trials
+2025-05-14 16:24:59 - src.algorithm - INFO - Running 1 detection trials with varying algorithm seeds
+2025-05-14 16:24:59 - src.algorithm - INFO - Running trial 1/1 with seed 1608637542
+2025-05-14 16:25:05 - src.algorithm - INFO - Completed 1/1 trials successfully
+2025-05-14 16:25:05 - src.algorithm - INFO - STEP 7: Exporting results to CSV
+2025-05-14 16:25:05 - src.utils.output_manager - INFO - Results saved to results\sbm_mahalanobis_mixture_20250514_162454\detection_results.xlsx
+2025-05-14 16:25:05 - src.algorithm - INFO - STEP 8: Preparing result data
+2025-05-14 16:25:05 - src.algorithm - INFO - Pipeline execution completed successfully
+```
+
+### Detection Results
+
+The framework produces detailed detection metrics showing the performance:
+
+```
 Change Point Detection Analysis
 ==============================
 
@@ -89,9 +105,9 @@ Detection Details:
 ╭───────────┬─────────────────────────┬─────────────────╮
 │   True CP │   Traditional Detection │   Delay (steps) │
 ├───────────┼─────────────────────────┼─────────────────┤
-│        40 │                      51 │              11 │
+│        80 │                      88 │               8 │
 ├───────────┼─────────────────────────┼─────────────────┤
-│       160 │                     166 │               6 │
+│       160 │                     164 │               4 │
 ╰───────────┴─────────────────────────┴─────────────────╯
 
 Summary Statistics:
@@ -100,9 +116,59 @@ Summary Statistics:
 ├────────────────┼───────────────┤
 │ Detection Rate │ 100.00%       │
 ├────────────────┼───────────────┤
-│ Average Delay  │ 8.50          │
+│ Average Delay  │ 6.00          │
 ╰────────────────┴───────────────╯
 ```
+
+### Visualization Tools
+
+After running detection, you can generate detailed visualizations with the provided utilities:
+
+```bash
+# Generate martingale plots
+python src/utils/plot_martingale.py -f ./results/your_results_folder/detection_results.xlsx
+
+# Generate SHAP analysis plots
+python src/utils/plot_shap.py -f ./results/your_results_folder/detection_results.xlsx
+```
+
+## Example Visualizations
+
+### Martingale Tracking
+
+The sum martingale plot shows how the martingale increases when change points occur. Vertical dashed lines indicate true change points, while markers show where the algorithm detected the changes.
+
+![Sum Martingales](assets/mit_sum_martingales.png)
+
+### Individual Feature Martingales
+
+The individual feature martingales demonstrate which network features contribute most to change detection:
+
+![Individual Martingales](assets/mit_individual_martingales.png)
+
+### Feature Importance Analysis with SHAP
+
+SHAP values provide explainable insights into how each network feature contributes to change detection:
+
+![SHAP Analysis](assets/shap_explanation_analysis.png)
+
+### Different Betting Functions
+
+Martingale performance varies based on the betting function used:
+
+![Martingale by Betting Function](assets/martingale_by_betting_function.png)
+
+### Network Visualization
+
+Synthetic networks used for benchmarking:
+
+![Synthetic Networks](assets/synthetic_networks.png)
+
+### Real-World Applications
+
+MIT Reality Mining dataset analysis, showing evolving social network structure:
+
+![MIT Reality Daily Graphs](assets/mit_reality_daily_graphs.png)
 
 ## Algorithm Overview
 
@@ -110,8 +176,8 @@ The detection pipeline consists of several key components:
 
 1. **Graph Sequence Generation**: Creates a sequence of evolving graphs with predefined change points
 2. **Feature Extraction**: Extracts topological features from each graph in the sequence
-4. **Change Point Detection**: Applies martingale-based detection methods
-5. **Visualization & Analysis**: Generates research-quality visualizations and numerical analysis
+3. **Change Point Detection**: Applies martingale-based detection methods
+4. **Visualization & Analysis**: Generates research-quality visualizations and numerical analysis
 
 ## Data Sources
 
@@ -132,9 +198,8 @@ Pattern Recognition, Accepted for publication.
 1. Ho, S. S., et al. (2005). "A martingale framework for concept change detection in time-varying data streams." 
 ICML.
 2. Ho, S. S., T. T. Kairamkonda, Change point detection in evolving graph using martingale, in: Proceedings of the 39th ACM/SIGAPP Symposium on Applied Computing, 2024, pp. 466-473.
-
-2. Lundberg, S. M., & Lee, S. I. (2017). "A unified approach to interpreting model predictions." NeurIPS.
-3. Newman, M. E. J. (2010). "Networks: An Introduction." Oxford University Press.
+3. Lundberg, S. M., & Lee, S. I. (2017). "A unified approach to interpreting model predictions." NeurIPS.
+4. Newman, M. E. J. (2010). "Networks: An Introduction." Oxford University Press.
 
 ## Contributing
 

@@ -34,7 +34,6 @@ def normalize_features(
     return normalized_features, feature_means, feature_stds
 
 
-
 def prepare_result_data(
     sequence_result: Dict[str, Any],
     features_numeric: np.ndarray,

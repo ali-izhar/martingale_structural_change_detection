@@ -48,38 +48,55 @@ FEATURE_INFO = {
 }
 
 
-def load_data(file_path, sheet_name="Aggregate"):
+def load_data(file_path, sheet_name="Trial1"):
     """Load martingale data from an Excel file. Return
     a dataframe with the martingale data and a list of change points."""
     try:
         df = pd.read_excel(file_path, sheet_name=sheet_name)
         print(f"Successfully read sheet: {sheet_name} from {file_path}")
-        try:
-            metadata_df = pd.read_excel(file_path, sheet_name="ChangePointMetadata")
-            change_points = metadata_df["change_point"].values.tolist()
-            print(f"Found {len(change_points)} change points in metadata")
-        except Exception:
-            change_points = []
-            if "true_change_point" in df.columns:
-                change_points = df.loc[
-                    ~df["true_change_point"].isna(), "timestep"
-                ].values.tolist()
-                print(f"Found {len(change_points)} change points in main sheet")
 
-        return df, change_points
+        # Extract change points from true_change_point column
+        change_points = []
+        if "true_change_point" in df.columns:
+            # Get timesteps where true_change_point is not 0
+            change_points = df.loc[
+                df["true_change_point"] != 0, "timestep"
+            ].values.tolist()
+            print(f"Found {len(change_points)} change points in sheet")
+
+        # Try to load detection details
+        detection_details = None
+        try:
+            detection_df = pd.read_excel(file_path, sheet_name="Detection Details")
+
+            # Filter for the current trial
+            trial_num = int(sheet_name.replace("Trial", ""))
+            detection_details = detection_df[
+                (detection_df["Trial"] == trial_num)
+                & (detection_df["Type"] == "Traditional")
+            ]
+
+            if not detection_details.empty:
+                print(
+                    f"Found {len(detection_details)} detection details for {sheet_name}"
+                )
+        except Exception as e:
+            print(f"Warning: Could not read Detection Details: {str(e)}")
+
+        return df, change_points, detection_details
 
     except Exception as e:
         print(f"Error reading file: {str(e)}")
-        return None, []
+        return None, [], None
 
 
 def load_trial_data(file_path):
-    """Load data from all trial sheets and metadata.
+    """Load data from all trial sheets.
 
     Returns:
         trial_dfs: List of dataframes for each trial
         change_points: List of change points
-        metadata_df: DataFrame with change point metadata
+        detection_details: DataFrame with detection information
     """
     try:
         excel = pd.ExcelFile(file_path)
@@ -88,42 +105,40 @@ def load_trial_data(file_path):
         ]
         print(f"Found {len(trial_sheets)} trial sheets: {trial_sheets}")
 
-        # Load change point metadata if available
+        # Try to load detection details
+        detection_details = None
         try:
-            metadata_df = pd.read_excel(file_path, sheet_name="ChangePointMetadata")
-            change_points = metadata_df["change_point"].values.tolist()
-            print(f"Found {len(change_points)} change points in metadata")
-
-            if all(
-                col in metadata_df.columns
-                for col in ["horizon_avg_delay", "traditional_avg_delay"]
-            ):
-                for i, cp in enumerate(change_points):
-                    trad_delay = metadata_df.iloc[i]["traditional_avg_delay"]
-                    horizon_delay = metadata_df.iloc[i]["horizon_avg_delay"]
-                    reduction = metadata_df.iloc[i].get(
-                        "delay_reduction", 1 - horizon_delay / trad_delay
-                    )
-                    print(
-                        f"CP {cp}: Trad delay={trad_delay:.2f}, Horizon delay={horizon_delay:.2f}, Reduction={reduction:.2%}"
-                    )
+            detection_details = pd.read_excel(file_path, sheet_name="Detection Details")
+            detection_details = detection_details[
+                detection_details["Type"] == "Traditional"
+            ]
+            print(f"Found {len(detection_details)} traditional detection details")
         except Exception as e:
-            print(f"Warning: Could not read metadata: {str(e)}")
-            metadata_df = None
-            change_points = []
+            print(f"Warning: Could not read Detection Details: {str(e)}")
 
         # Load each trial sheet
         trial_dfs = []
+        all_change_points = []
+
         for sheet in trial_sheets:
             df = pd.read_excel(file_path, sheet_name=sheet)
             trial_dfs.append(df)
-            # If we don't have change points yet, try to get them from this sheet
-            if not change_points and "true_change_point" in df.columns:
-                change_points = df.loc[
-                    ~df["true_change_point"].isna(), "timestep"
-                ].values.tolist()
 
-        return trial_dfs, change_points, metadata_df
+            # Extract change points from true_change_point column
+            if "true_change_point" in df.columns:
+                # Get timesteps where true_change_point is not 0
+                sheet_change_points = df.loc[
+                    df["true_change_point"] != 0, "timestep"
+                ].values.tolist()
+                all_change_points.extend(sheet_change_points)
+
+        # Remove duplicates and sort
+        change_points = sorted(set(all_change_points))
+        print(
+            f"Found {len(change_points)} unique change points across all trial sheets"
+        )
+
+        return trial_dfs, change_points, detection_details
 
     except Exception as e:
         print(f"Error loading trial data: {str(e)}")
@@ -135,8 +150,9 @@ def plot_individual_martingales(
     output_path,
     change_points=None,
     trial_dfs=None,
-    metadata_df=None,
+    detection_details=None,
     threshold=50.0,
+    current_trial=None,
 ):
     """Create a grid of plots for individual feature martingales.
 
@@ -145,13 +161,14 @@ def plot_individual_martingales(
         output_path: Path to save the output image
         change_points: List of change points to mark on plots
         trial_dfs: List of DataFrames for individual trials (for box plots)
-        metadata_df: DataFrame with change point metadata
+        detection_details: DataFrame with detection information
+        threshold: Detection threshold value
+        current_trial: Current trial number
     """
     feature_cols = [
         col
         for col in df.columns
         if col.startswith("individual_traditional_martingales_feature")
-        and col.endswith("_mean")
     ]
 
     if not feature_cols:
@@ -172,11 +189,8 @@ def plot_individual_martingales(
     # Determine full data range for consistent x-axis limits
     x_min, x_max = min(x), max(x)
 
-    # # Use 40 instead of 20 as the tick spacing
-    # tick_spacing = max(40, (x_max - x_min) // 5)
-
-    # Explicitly set the x-axis limits to show just a little beyond 200
-    x_limits = (x_min, 285)
+    # Explicitly set the x-axis limits to show just a little beyond the max value
+    x_limits = (x_min, x_max + int(0.05 * (x_max - x_min)))
 
     # Find global maximum for consistent y-axis limits
     y_max = 0
@@ -193,7 +207,6 @@ def plot_individual_martingales(
     if change_points and trial_dfs:
         for feature_id in range(len(feature_cols)):
             trad_col = f"individual_traditional_martingales_feature{feature_id}"
-            hor_col = f"individual_horizon_martingales_feature{feature_id}"
             max_val = 0
 
             for cp in change_points:
@@ -205,8 +218,6 @@ def plot_individual_martingales(
                         window = trial_df.iloc[cp_idx:window_end]
                         if trad_col in window.columns:
                             max_val = max(max_val, window[trad_col].max())
-                        if hor_col in window.columns:
-                            max_val = max(max_val, window[hor_col].max())
 
             feature_importance[feature_id] = max_val
 
@@ -239,7 +250,7 @@ def plot_individual_martingales(
             ax = axes[i]
 
             # Extract feature ID and get name
-            feature_id = col.split("feature")[1].split("_")[0]
+            feature_id = col.split("feature")[1]
             feature_name = FEATURE_INFO.get(feature_id, f"Feature {feature_id}")
 
             # Determine if this is an important feature
@@ -263,18 +274,14 @@ def plot_individual_martingales(
                 trad_col_base = (
                     f"individual_traditional_martingales_feature{feature_id}"
                 )
-                hor_col_base = f"individual_horizon_martingales_feature{feature_id}"
 
                 # Create box plot data for each sample point
                 trad_data = []
                 trad_positions = []
-                hor_data = []
-                hor_positions = []
 
                 for time_point in sample_points:
                     # Collect values across trials for this time point
                     trad_values = []
-                    hor_values = []
 
                     for trial_df in trial_dfs:
                         if "timestep" in trial_df.columns:
@@ -285,15 +292,10 @@ def plot_individual_martingales(
                                 ][0]
                                 if trad_col_base in trial_df.columns:
                                     trad_values.append(trial_df.loc[idx, trad_col_base])
-                                if hor_col_base in trial_df.columns:
-                                    hor_values.append(trial_df.loc[idx, hor_col_base])
 
                     if trad_values:
                         trad_data.append(trad_values)
                         trad_positions.append(time_point)
-                    if hor_values:
-                        hor_data.append(hor_values)
-                        hor_positions.append(time_point)
 
                 # Create box plots with narrower width for better visibility
                 box_width = min(3.0, threshold / len(sample_points))
@@ -313,51 +315,15 @@ def plot_individual_martingales(
                         zorder=3,
                     )
 
-                if hor_data:
-                    hor_boxes = ax.boxplot(
-                        hor_data,
-                        positions=hor_positions,
-                        widths=box_width,
-                        patch_artist=True,
-                        boxprops=dict(
-                            facecolor="#FFD580", color="#FF8C00", alpha=0.7
-                        ),  # Improved colors
-                        whiskerprops=dict(color="#FF8C00", linewidth=1.0),
-                        medianprops=dict(color="#FF4500", linewidth=1.5),
-                        showfliers=False,
-                        zorder=2,
-                    )
-
-                # Also plot the means from the aggregate data as a line
+                # Also plot the current trial data as a line
                 ax.plot(
                     x, df[col].values, "#0000CD", linewidth=1.0, alpha=0.5, zorder=1
                 )
-
-                horizon_col = col.replace("traditional", "horizon")
-                if horizon_col in df.columns:
-                    ax.plot(
-                        x,
-                        df[horizon_col].values,
-                        "#FF8C00",
-                        linewidth=1.0,
-                        alpha=0.5,
-                        zorder=1,
-                    )
             else:
                 # Regular line plot (original behavior)
                 ax.plot(
                     x, df[col].values, "#0000CD", linewidth=1.5, label="Traditional"
                 )
-
-                horizon_col = col.replace("traditional", "horizon")
-                if horizon_col in df.columns:
-                    ax.plot(
-                        x,
-                        df[horizon_col].values,
-                        "#FF8C00",
-                        linewidth=1.5,
-                        label="Horizon",
-                    )
 
             # Mark change points if provided
             if change_points:
@@ -383,7 +349,13 @@ def plot_individual_martingales(
             ax.set_ylim(0, y_max)
             ax.set_yticks(range(0, int(y_max) + 1, int(threshold)))
             ax.set_xlim(x_limits)
-            ax.set_xticklabels([str(int(tick)) for tick in ax.get_xticks()])
+
+            # Reduce the number of x-ticks to avoid crowding
+            max_ticks = 5  # Maximum number of ticks to show
+            step = max(1, int((x_max - x_min) / max_ticks))
+            ticks = list(range(int(x_min), int(x_max) + 1, step))
+            ax.set_xticks(ticks)
+            ax.set_xticklabels([str(int(tick)) for tick in ticks])
 
             # Add legend on first plot only
             if i == 0:
@@ -397,12 +369,6 @@ def plot_individual_martingales(
                             alpha=0.7,
                             label="Traditional",
                         ),
-                        Patch(
-                            facecolor="#FFD580",
-                            edgecolor="#FF8C00",
-                            alpha=0.7,
-                            label="Horizon",
-                        ),
                     ]
                     ax.legend(handles=legend_elements, loc="upper right", fontsize=10)
                 else:
@@ -411,10 +377,6 @@ def plot_individual_martingales(
     # Hide unused subplots
     for i in range(n_features, len(axes)):
         axes[i].set_visible(False)
-
-    for ax in axes:
-        if ax.get_visible():
-            ax.set_xlim(x_limits)
 
     plt.tight_layout()
     fig.subplots_adjust(bottom=0.15, top=0.95)
@@ -430,10 +392,10 @@ def plot_sum_martingales(
     change_points=None,
     threshold=50.0,
     trial_dfs=None,
-    metadata_df=None,
-    enable_annot=True,
+    detection_details=None,
+    current_trial=None,
 ):
-    """Create a comparison plot of sum martingales.
+    """Create a plot of sum martingales.
 
     Args:
         df: DataFrame containing martingale data
@@ -441,30 +403,13 @@ def plot_sum_martingales(
         change_points: List of change points to mark on plots
         threshold: Detection threshold value
         trial_dfs: List of DataFrames for individual trials (for box plots)
-        metadata_df: DataFrame with change point metadata for delay annotations
-        enable_annot: Whether to show delay reduction annotations
+        detection_details: DataFrame with detection information
+        current_trial: Current trial number
     """
-    # Find column names for sum martingales
-    trad_sum_col = next(
-        (
-            col
-            for col in df.columns
-            if col
-            in ["traditional_sum_martingales_mean", "traditional_sum_martingales"]
-        ),
-        None,
-    )
+    # Find column name for sum martingales
+    trad_sum_col = "traditional_sum_martingales"
 
-    hor_sum_col = next(
-        (
-            col
-            for col in df.columns
-            if col in ["horizon_sum_martingales_mean", "horizon_sum_martingales"]
-        ),
-        None,
-    )
-
-    if not trad_sum_col:
+    if trad_sum_col not in df.columns:
         print("Traditional sum martingale column not found")
         return
 
@@ -473,12 +418,9 @@ def plot_sum_martingales(
 
     x = df["timestep"].values
 
-    # Clean up x-axis ticks - use fewer ticks to reduce clutter
+    # Set proper x-axis limits
     x_min, x_max = min(x), max(x)
-
-
-    # Set proper x-axis limits to include the last tick mark at 200 with small margin
-    x_limits = (x_min, 285)
+    x_limits = (x_min, x_max + int(0.05 * (x_max - x_min)))
 
     # Check if we have trial data for box plots
     has_trial_data = trial_dfs is not None and len(trial_dfs) > 0
@@ -488,7 +430,6 @@ def plot_sum_martingales(
         for cp in change_points:
             # Add light shading after change point to highlight detection region
             ax.axvspan(cp, min(cp + 10, x_max), color="#f5f5f5", zorder=0)
-
 
     if has_trial_data:
         # Sample points for box plots (plotting at every timestep would be too crowded)
@@ -512,34 +453,22 @@ def plot_sum_martingales(
         # Create box plot data for each sample point
         trad_data = []
         trad_positions = []
-        hor_data = []
-        hor_positions = []
 
         for time_point in sample_points:
             # Collect values across trials for this time point
             trad_values = []
-            hor_values = []
 
             for trial_df in trial_dfs:
                 if "timestep" in trial_df.columns:
                     # Find rows with this timestep
                     matches = trial_df[trial_df["timestep"] == time_point]
                     if not matches.empty:
-                        if "traditional_sum_martingales" in trial_df.columns:
-                            trad_values.append(
-                                matches["traditional_sum_martingales"].values[0]
-                            )
-                        if "horizon_sum_martingales" in trial_df.columns:
-                            hor_values.append(
-                                matches["horizon_sum_martingales"].values[0]
-                            )
+                        if trad_sum_col in trial_df.columns:
+                            trad_values.append(matches[trad_sum_col].values[0])
 
             if trad_values:
                 trad_data.append(trad_values)
                 trad_positions.append(time_point)
-            if hor_values:
-                hor_data.append(hor_values)
-                hor_positions.append(time_point)
 
         # Create box plots with improved styling
         box_width = min(3.0, 60 / len(sample_points))
@@ -557,20 +486,7 @@ def plot_sum_martingales(
                 zorder=3,
             )
 
-        if hor_data:
-            hor_boxes = ax.boxplot(
-                hor_data,
-                positions=hor_positions,
-                widths=box_width,
-                patch_artist=True,
-                boxprops=dict(facecolor="#FFD580", color="#FF8C00", alpha=0.7),
-                whiskerprops=dict(color="#FF8C00", linewidth=1.0),
-                medianprops=dict(color="#FF4500", linewidth=1.5),
-                showfliers=False,
-                zorder=2,
-            )
-
-        # Add thin lines for mean values from aggregate data
+        # Add thin lines for current trial data
         ax.plot(
             x,
             df[trad_sum_col].values,
@@ -580,16 +496,6 @@ def plot_sum_martingales(
             zorder=1,
         )
 
-        if hor_sum_col:
-            ax.plot(
-                x,
-                df[hor_sum_col].values,
-                "#FF8C00",
-                linewidth=1.0,
-                alpha=0.5,
-                zorder=1,
-            )
-
         # Add legend with improved appearance
         from matplotlib.patches import Patch
 
@@ -597,7 +503,6 @@ def plot_sum_martingales(
             Patch(
                 facecolor="#ADD8E6", edgecolor="#0000CD", alpha=0.7, label="Traditional"
             ),
-            Patch(facecolor="#FFD580", edgecolor="#FF8C00", alpha=0.7, label="Horizon"),
             Patch(facecolor="red", edgecolor="red", alpha=0.5, label="Threshold"),
             Patch(facecolor="gray", edgecolor="gray", alpha=0.5, label="Change Points"),
         ]
@@ -614,16 +519,6 @@ def plot_sum_martingales(
             zorder=5,
         )
 
-        if hor_sum_col:
-            ax.plot(
-                x,
-                df[hor_sum_col].values,
-                "#FF8C00",
-                linewidth=2.0,
-                label="Horizon Sum",
-                zorder=3,
-            )
-
         # Add legend
         ax.legend(loc="upper right", fontsize=12)
 
@@ -637,96 +532,158 @@ def plot_sum_martingales(
         linewidth=1.5,
     )
 
-    # Mark change points and add detection delay annotations if available
+    # Add detection points from Detection Details sheet
+    if detection_details is not None and not detection_details.empty:
+        # Filter for current trial if specified
+        trial_details = detection_details
+        if current_trial is not None:
+            trial_details = detection_details[
+                detection_details["Trial"] == current_trial
+            ]
+
+        for _, row in trial_details.iterrows():
+            detection_idx = row["Detection Index"]
+            nearest_cp = row["Nearest True CP"]
+            distance = row["Distance to CP"]
+            is_within_10 = row["Is Within 10 Steps"]
+
+            # Check if this detection index is in our data range
+            if detection_idx in df["timestep"].values:
+                # Get value at detection point
+                detection_value = df.loc[
+                    df["timestep"] == detection_idx, trad_sum_col
+                ].values[0]
+
+                # Choose color based on detection quality
+                marker_color = "#0000CD" if is_within_10 else "#FF4500"
+
+                # Add detection marker
+                ax.scatter(
+                    [detection_idx],
+                    [detection_value],
+                    color=marker_color,
+                    s=80,
+                    zorder=10,
+                    marker="o",
+                )
+
+                # Add annotation - position it much lower to avoid overlapping with peaks
+                vertical_offset = threshold * 0.5  # Use 50% of threshold as offset
+                ax.annotate(
+                    f"Detection (CP={nearest_cp}, d={distance})",
+                    xy=(detection_idx, detection_value),
+                    xytext=(detection_idx, vertical_offset),
+                    color="#00008B" if is_within_10 else "#FF4500",
+                    fontweight="bold",
+                    fontsize=10,
+                    arrowprops=dict(
+                        arrowstyle="->", color="#00008B" if is_within_10 else "#FF4500"
+                    ),
+                    bbox=dict(boxstyle="round,pad=0.3", fc="white", alpha=0.8),
+                    ha="center",
+                )
+    # Add regular detection markers if no Detection Details but traditional_detected is available
+    elif "traditional_detected" in df.columns:
+        detection_points = df.loc[df["traditional_detected"] == 1, "timestep"].values
+        if len(detection_points) > 0:
+            for detection_point in detection_points:
+                detection_value = df.loc[
+                    df["timestep"] == detection_point, trad_sum_col
+                ].values[0]
+                ax.scatter(
+                    [detection_point],
+                    [detection_value],
+                    color="#0000CD",
+                    s=80,
+                    zorder=10,
+                    marker="o",
+                )
+
+                # Position annotation lower with arrow pointing up
+                vertical_offset = threshold * 0.5
+                ax.annotate(
+                    "Detection",
+                    xy=(detection_point, detection_value),
+                    xytext=(detection_point, vertical_offset),
+                    color="#00008B",
+                    fontweight="bold",
+                    fontsize=11,
+                    ha="center",
+                    arrowprops=dict(arrowstyle="->", color="#00008B"),
+                    bbox=dict(boxstyle="round,pad=0.3", fc="white", alpha=0.8),
+                )
+
+    # Mark change points with cleaner labels
     if change_points:
-        for i, cp in enumerate(change_points):
-            # Add vertical line for change point
-            ax.axvline(
-                x=cp,
-                color="gray",
-                linestyle="--",
-                alpha=0.8,
-                linewidth=1.5,
-                label="Change Point" if i == 0 else "",
-            )
+        # Calculate appropriate label positions
+        label_y_pos = -threshold * 0.05
 
-            # Add detection delay annotations if metadata is available
-            if metadata_df is not None and i < len(metadata_df):
-                try:
-                    trad_delay = metadata_df.iloc[i]["traditional_avg_delay"]
-                    hor_delay = metadata_df.iloc[i]["horizon_avg_delay"]
+        # Get change point groups to prevent label overlap
+        cp_groups = []
+        current_group = []
+        min_distance = (
+            15  # Minimum distance between change points before creating new group
+        )
 
-                    # Find detection points (where lines cross threshold)
-                    trad_detection = cp + trad_delay
-                    hor_detection = cp + hor_delay
+        for cp in sorted(change_points):
+            if not current_group or (cp - current_group[-1]) < min_distance:
+                current_group.append(cp)
+            else:
+                cp_groups.append(current_group)
+                current_group = [cp]
 
-                    # Add detection points and annotations only if enabled
-                    if enable_annot:
-                        # Mark detection points
-                        ax.scatter(
-                            [trad_detection],
-                            [threshold],
-                            color="#0000CD",
-                            s=80,
-                            zorder=10,
-                            marker="o",
-                        )
-                        ax.scatter(
-                            [hor_detection],
-                            [threshold],
-                            color="#FF8C00",
-                            s=80,
-                            zorder=10,
-                            marker="o",
-                        )
+        if current_group:
+            cp_groups.append(current_group)
 
-                        # Add traditional delay annotation
-                        ax.annotate(
-                            f"Traditional: {trad_delay:.1f}",
-                            xy=(trad_detection, threshold),
-                            xytext=(trad_detection + 2, threshold * 1.1),
-                            color="#00008B",
-                            fontweight="bold",
-                            fontsize=11,
-                            bbox=dict(boxstyle="round,pad=0.3", fc="white", alpha=0.8),
-                        )
+        # Add vertical lines and labels for change points
+        for i, group in enumerate(cp_groups):
+            for j, cp in enumerate(group):
+                ax.axvline(
+                    x=cp,
+                    color="gray",
+                    linestyle="--",
+                    alpha=0.8,
+                    linewidth=1.5,
+                    label="Change Point" if i == 0 and j == 0 else "",
+                )
 
-                        # Add horizon delay annotation
-                        ax.annotate(
-                            f"Horizon: {hor_delay:.1f}",
-                            xy=(hor_detection, threshold),
-                            xytext=(hor_detection - 2, threshold * 0.9),
-                            color="#FF4500",
-                            fontweight="bold",
-                            fontsize=11,
-                            ha="right",
-                            bbox=dict(boxstyle="round,pad=0.3", fc="white", alpha=0.8),
-                        )
+                # For groups, stagger the labels vertically
+                if len(group) > 1:
+                    # Stagger labels so they don't overlap
+                    offset = j * 0.05 * threshold
+                    this_label_y_pos = label_y_pos - offset
+                else:
+                    this_label_y_pos = label_y_pos
 
-                        # Add delay reduction info between arrows
-                        reduction = metadata_df.iloc[i].get(
-                            "delay_reduction", 1 - hor_delay / trad_delay
-                        )
-                        mid_point = (trad_detection + hor_detection) / 2
-                        ax.annotate(
-                            f"{reduction:.1%} faster",
-                            xy=(mid_point, threshold),
-                            xytext=(mid_point, threshold * 1.3),
-                            color="#006400",
-                            fontweight="bold",
-                            fontsize=11,
-                            ha="center",
-                            bbox=dict(
-                                boxstyle="round,pad=0.3", fc="#E8F8E8", alpha=0.9
-                            ),
-                        )
-                except Exception as e:
-                    print(f"Error adding delay annotations: {e}")
+                # Add change point label
+                ax.annotate(
+                    f"CP {cp}",
+                    xy=(cp, 0),
+                    xytext=(cp, this_label_y_pos),
+                    color="gray",
+                    fontweight="bold",
+                    fontsize=10,
+                    ha="center",
+                    va="top",
+                )
+
+    # Reduce the number of x-axis ticks to avoid crowding
+    max_ticks = 10  # Maximum number of ticks to show
+    step = max(1, int((x_max - x_min) / max_ticks))
+    ticks = list(range(int(x_min), int(x_max) + 1, step))
+    ax.set_xticks(ticks)
+    ax.set_xticklabels([str(int(tick)) for tick in ticks])
 
     ax.set_xlim(x_limits)
     plt.setp(ax.get_xticklabels(), rotation=0)
     ax.set_xlabel("Time", fontsize=14, fontweight="bold")
     ax.set_ylabel("Martingale Value", fontsize=14, fontweight="bold")
+
+    # Add a title with the trial number if available
+    if current_trial is not None:
+        plt.title(
+            f"Trial {current_trial} - Traditional Sum Martingales", fontsize=16, pad=10
+        )
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
@@ -736,57 +693,72 @@ def plot_sum_martingales(
 
 def plot_martingales(
     file_path,
-    sheet_name="Aggregate",
+    sheet_name="Trial1",
     output_dir="results",
     threshold=50.0,
     use_boxplots=True,
-    enable_annot=True,
 ):
     """Main function to plot martingale data from an Excel file.
 
     Args:
         file_path: Path to the Excel file
-        sheet_name: Name of the sheet to read
+        sheet_name: Name of the sheet to read (default is Trial1)
         output_dir: Directory to save output plots
         threshold: Detection threshold value
         use_boxplots: Whether to use box plots for showing distributions
-        enable_annot: Whether to show delay reduction annotations
     """
     setup_plot_style()
     os.makedirs(output_dir, exist_ok=True)
 
-    df, change_points = load_data(file_path, sheet_name)
+    # Get current trial number
+    current_trial = None
+    if sheet_name.startswith("Trial"):
+        try:
+            current_trial = int(sheet_name.replace("Trial", ""))
+        except ValueError:
+            pass
+
+    df, change_points, detection_details = load_data(file_path, sheet_name)
     if df is None:
         return
 
     # Load trial data if box plots are requested
     trial_dfs = None
-    metadata_df = None
+    all_detection_details = None
     if use_boxplots:
-        trial_dfs, trial_change_points, metadata_df = load_trial_data(file_path)
-        # If we found change points in trials but not in the aggregate sheet
+        trial_dfs, trial_change_points, all_detection_details = load_trial_data(
+            file_path
+        )
+        # If we found change points in trials but not in the current sheet
         if not change_points and trial_change_points:
             change_points = trial_change_points
+
+        # If we don't have detection details for this trial specifically, use the full set
+        if detection_details is None or detection_details.empty:
+            detection_details = all_detection_details
 
     # Plot individual martingales
     plot_individual_martingales(
         df=df,
-        output_path=os.path.join(output_dir, "individual_martingales.png"),
+        output_path=os.path.join(
+            output_dir, f"{sheet_name}_individual_martingales.png"
+        ),
         change_points=change_points,
         trial_dfs=trial_dfs if use_boxplots else None,
-        metadata_df=metadata_df,
+        detection_details=detection_details,
         threshold=threshold,
+        current_trial=current_trial,
     )
 
     # Plot sum martingales
     plot_sum_martingales(
         df=df,
-        output_path=os.path.join(output_dir, "sum_martingales.png"),
+        output_path=os.path.join(output_dir, f"{sheet_name}_sum_martingales.png"),
         change_points=change_points,
         threshold=threshold,
         trial_dfs=trial_dfs if use_boxplots else None,
-        metadata_df=metadata_df,
-        enable_annot=enable_annot,
+        detection_details=detection_details,
+        current_trial=current_trial,
     )
 
 
@@ -798,7 +770,7 @@ if __name__ == "__main__":
         "--file_path", "-f", type=str, required=True, help="Path to Excel file"
     )
     parser.add_argument(
-        "--sheet_name", "-s", type=str, default="Aggregate", help="Sheet name"
+        "--sheet_name", "-s", type=str, default="Trial1", help="Sheet name"
     )
     parser.add_argument(
         "--output_dir", "-o", type=str, default="results", help="Output directory"
@@ -809,11 +781,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "--no_boxplots", action="store_true", help="Disable box plots for distributions"
     )
-    parser.add_argument(
-        "--no_annotations",
-        action="store_true",
-        help="Disable delay reduction annotations",
-    )
 
     args = parser.parse_args()
 
@@ -823,5 +790,4 @@ if __name__ == "__main__":
         output_dir=args.output_dir,
         threshold=args.threshold,
         use_boxplots=not args.no_boxplots,
-        enable_annot=not args.no_annotations,
     )
