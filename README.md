@@ -13,8 +13,8 @@ Key features:
 ## Installation
 
 ```bash
-git clone https://github.com/your-repo/anomaly_detection.git
-cd anomaly_detection
+git clone https://github.com/your-repo/martingale_structural_change_detection.git
+cd martingale_structural_change_detection
 pip install -r requirements.txt
 ```
 
@@ -122,7 +122,7 @@ The detection pipeline consists of several key components:
 
 Please use the following citation for this work:
 
-```
+```bibtex
 Ho, S. S., T. T. Kairamkonda, Ali, I. (2025). "Detecting and Explaining Structural Changes in an Evolving Graph using a Martingale." 
 Pattern Recognition, Accepted for publication.
 ```
