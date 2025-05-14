@@ -1,0 +1,28 @@
+# SONNET 
+# Thesis Presentation Slide Design
+I am creating slides for my thesis presentation. Your job is to help me write and DESIGN code to create visuals that can accompany the thesis. First, read the [] chapter of the thesis to understand it; then come up with max 5 slides for it to layout what we could explain here and what plots we can include; then I'll instruct you further.
+
+@chapter[].tex 
+
+
+
+
+
+
+
+# GEMINI
+# Understanding Thesis Chapter 1 and Code
+Read and understand the second chapter of the thesis @chapter[].tex
+then, understand the code for it in @chapter[]
+
+Great. I want to create slides (reasonable number) describing the problem, creating those plots etc to convey the idea as a very great introduction problem! Write below content for the slides very professional, to the point, and great from an audience perspetive. With the slides, I will accompany those plots
+
+
+
+
+
+# SONNET (temp)
+
+Let's make @static_network.py very very cool looking bright visuals for a research thesis presentation to convey the idea of the a static network Do you absolute best
+
+Great. Now let's work on @statistical_guarantees.py to make it look gorgeous and research thesis preseentation level high quality plots that are statistically correct and valid 

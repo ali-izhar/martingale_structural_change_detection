@@ -1,0 +1,69 @@
+# src/configs/algorithm.yaml
+
+name: Martingale-based Graph Structural Change Detection
+version: 1.0
+description: "Martingale-based Graph Structural Change Detection"
+
+execution:
+  enable_visualization: true  # Whether to create visualizations
+  save_csv: true  # Whether to export results to CSV files
+
+# Trial configuration
+trials:
+  n_trials: 1  # Number of times to run the detector
+  random_seeds: 42 # Random seeds for reproducibility
+
+# Model configuration
+model:
+  type: "multiview"  # or "single_view"
+  network: "sbm"  # choices: ["ba", "ws", "er", "sbm"
+
+# Detection parameters
+detection:
+  threshold: 60.0  # Threshold
+  batch_size: 1000  # Batch size for multiview processing
+  reset: true  # Reset martingales after detection
+  max_window: null  # Maximum window size (null for adaptive)
+  
+  # Betting function configuration
+  betting_func_config:
+    name: "mixture"  # Using power betting function
+    power:  # Parameters specific to the power betting function
+      epsilon: 0.7  # Epsilon
+    exponential:
+      lambd: 1.0  # Rate parameter controlling sensitivity
+    mixture:
+      epsilons: [0.7, 0.8, 0.9]  # Reduced number of epsilons, focused on higher values
+    constant: {}  # No parameters needed
+    beta:
+      a: 0.5  # Alpha parameter of Beta distribution
+      b: 1.5  # Beta parameter of Beta distribution
+    kernel:
+      bandwidth: 0.1  # Bandwidth for Gaussian kernel
+      past_pvalues: []  # List of past p-values (updated during runtime)
+
+  # Distance configuration
+  distance:
+    measure: "mahalanobis"  # Distance measure
+    p: 2.0  # Order for Minkowski distance
+
+# Feature extraction
+features:
+  - mean_degree           # Average node degree
+  - density               # Graph density
+  - mean_clustering       # Average clustering coefficient
+  - mean_betweenness      # Average betweenness centrality
+  - mean_eigenvector      # Average eigenvector centrality
+  - mean_closeness        # Average closeness centrality
+  - max_singular_value    # Largest singular value
+  - min_nonzero_laplacian # Smallest non-zero Laplacian eigenvalue
+
+# Output configuration
+output:
+  directory: "results"  # Output directory for results
+  prefix: ""  # Prefix for output files
+  save_features: true  # Save extracted features
+  save_martingales: true  # Save martingale values
+  visualization:
+    enabled: true  # Enable result visualization
+    skip_shap: false  # Include SHAP value analysis

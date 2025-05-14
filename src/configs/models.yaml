@@ -1,0 +1,68 @@
+# src/configs/models.yaml
+
+# Default configurations for graph models
+
+barabasi_albert:
+  n: 50  # Number of nodes in the graph
+  seq_len: 200  # Total length of the time series
+  min_segment: 40  # Minimum length of each stable segment
+  min_changes: 1  # Minimum number of change points
+  max_changes: 2  # Maximum number of change points
+  # Initial attachment parameter
+  m: 1  # Start with minimum connections
+  min_m: 1  # Tree-like sparse phase
+  max_m: 6  # Hub-dominated dense phase
+  # Disable gaussian noise
+  n_std: null  # Standard deviation for node count noise
+  m_std: null  # Standard deviation for attachment parameter noise
+
+watts_strogatz:
+  n: 50  # Number of nodes in the graph
+  seq_len: 200  # Total length of the time series
+  min_segment: 40  # Minimum length of each stable segment
+  min_changes: 1  # Minimum number of change points
+  max_changes: 2  # Maximum number of change points
+  k_nearest: 6  # Initial number of nearest neighbors
+  min_k: 4  # Minimum nearest neighbors
+  max_k: 8  # Maximum nearest neighbors
+  rewire_prob: 0.1  # Initial rewiring probability
+  min_prob: 0.05  # Minimum rewiring probability
+  max_prob: 0.15  # Maximum rewiring probability
+  n_std: null  # Standard deviation for node count noise
+  k_std: 0.2  # Standard deviation for k-nearest noise
+  prob_std: 0.01  # Standard deviation for rewiring probability noise
+
+erdos_renyi:
+  n: 50  # Number of nodes in the graph
+  seq_len: 200  # Total length of the time series
+  min_segment: 40  # Minimum length of each stable segment
+  min_changes: 1  # Minimum number of change points
+  max_changes: 2  # Maximum number of change points
+  # Initial probability
+  prob: 0.05  # Start with sparse connections
+  min_prob: 0.05  # Very sparse phase
+  max_prob: 0.4  # Very dense phase
+  # Disable gaussian noise
+  n_std: null  # Standard deviation for node count noise
+  prob_std: null  # Standard deviation for probability noise
+  clustering_std: 0.02  # Standard deviation for clustering coefficient noise
+
+stochastic_block_model:
+  n: 50  # Number of nodes in the graph
+  seq_len: 200  # Total length of the time series
+  min_segment: 40  # Minimum length of each stable segment
+  min_changes: 2  # Minimum number of change points
+  max_changes: 2  # Maximum number of change points
+  num_blocks: 2  # Number of communities/blocks
+  min_block_size: 25  # Minimum size of each block (n//2)
+  max_block_size: 25  # Maximum size of each block (n//2)
+  intra_prob: 0.95  # Probability of edge within blocks
+  inter_prob: 0.01  # Probability of edge between blocks
+  min_intra_prob: 0.3  # Minimum intra-block edge probability
+  max_intra_prob: 0.95  # Maximum intra-block edge probability
+  min_inter_prob: 0.01  # Minimum inter-block edge probability
+  max_inter_prob: 0.3  # Maximum inter-block edge probability
+  n_std: null  # Standard deviation for node count noise
+  blocks_std: null  # Standard deviation for block size noise
+  intra_prob_std: null  # Standard deviation for intra-block probability noise
+  inter_prob_std: null  # Standard deviation for inter-block probability noise 
