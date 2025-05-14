@@ -2,6 +2,8 @@
 
 A robust framework for detecting and explaining significant structural changes in dynamic networks using martingale-based methods with explainable AI integration.
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15420100.svg)](https://doi.org/10.5281/zenodo.15420100)
+
 ## Overview
 
 This project implements a comprehensive pipeline for detecting changes in the underlying structure of evolving networks. The approach leverages martingale-based sequential analysis to detect anomalies in network structure features.
@@ -184,20 +186,33 @@ The detection pipeline consists of several key components:
 - [Synthetic Graph Data](src/config/synthetic_data_config.yaml)
 - [MIT Reality Mining Dataset](https://realitycommons.media.mit.edu/realitymining.html)
 
+## Repository and Archive
+
+This project is officially archived and accessible through:
+
+- **GitHub Repository**: [martingale_structural_change_detection](https://github.com/ali-izhar/martingale_structural_change_detection)
+- **Zenodo Archive**: [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15420100.svg)](https://doi.org/10.5281/zenodo.15420100)
+
 ## Citation
 
-Please use the following citation for this work:
+If you use this code or method in your research, please cite our paper:
 
 ```bibtex
-Ho, S. S., T. T. Kairamkonda, Ali, I. (2025). "Detecting and Explaining Structural Changes in an Evolving Graph using a Martingale." 
-Pattern Recognition, Accepted for publication.
+@article{Ho2025MartingaleStructural,
+  title = {Detecting and Explaining Structural Changes in an Evolving Graph using a Martingale},
+  author = {Ho, Shen-Shyang and Kairamkonda, Tarun Teja and Ali, Izhar},
+  journal = {Pattern Recognition},
+  year = {2025},
+  doi = {10.5281/zenodo.15420100},
+  publisher = {Elsevier}
+}
 ```
 
 ## References
 
 1. Ho, S. S., et al. (2005). "A martingale framework for concept change detection in time-varying data streams." 
 ICML.
-2. Ho, S. S., T. T. Kairamkonda, Change point detection in evolving graph using martingale, in: Proceedings of the 39th ACM/SIGAPP Symposium on Applied Computing, 2024, pp. 466-473.
+2. Ho, S. S., Kairamkonda, T. T., & Ali, I. (2024). Change point detection in evolving graph using martingale. In Proceedings of the 39th ACM/SIGAPP Symposium on Applied Computing (pp. 466-473).
 3. Lundberg, S. M., & Lee, S. I. (2017). "A unified approach to interpreting model predictions." NeurIPS.
 4. Newman, M. E. J. (2010). "Networks: An Introduction." Oxford University Press.
 
