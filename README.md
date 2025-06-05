@@ -3,6 +3,10 @@
 A robust framework for detecting and explaining significant structural changes in dynamic networks using martingale-based methods with explainable AI integration.
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15420100.svg)](https://doi.org/10.5281/zenodo.15420100)
+[![Paper](https://img.shields.io/badge/Paper-Pattern%20Recognition-blue)](https://www.sciencedirect.com/science/article/pii/S0031320325005151)
+[![DOI](https://img.shields.io/badge/DOI-10.1016%2Fj.patcog.2025.111855-orange)](https://doi.org/10.1016/j.patcog.2025.111855)
+
+> **📄 Research Paper:** Ho, S. S., Kairamkonda, T. T., & Ali, I. (2026). Detecting and explaining structural changes in an evolving graph using a martingale. *Pattern Recognition*, 169, 111855. [https://doi.org/10.1016/j.patcog.2025.111855](https://doi.org/10.1016/j.patcog.2025.111855)
 
 ## Overview
 
@@ -192,19 +196,26 @@ This project is officially archived and accessible through:
 
 - **GitHub Repository**: [martingale_structural_change_detection](https://github.com/ali-izhar/martingale_structural_change_detection)
 - **Zenodo Archive**: [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15420100.svg)](https://doi.org/10.5281/zenodo.15420100)
+- **Published Article**: [Pattern Recognition - ScienceDirect](https://www.sciencedirect.com/science/article/pii/S0031320325005151)
 
 ## Citation
 
 If you use this code or method in your research, please cite our paper:
 
 ```bibtex
-@article{Ho2025MartingaleStructural,
+@article{Ho2026MartingaleStructural,
   title = {Detecting and Explaining Structural Changes in an Evolving Graph using a Martingale},
   author = {Ho, Shen-Shyang and Kairamkonda, Tarun Teja and Ali, Izhar},
   journal = {Pattern Recognition},
-  year = {2025},
-  doi = {10.5281/zenodo.15420100},
-  publisher = {Elsevier}
+  year = {2026},
+  volume = {169},
+  pages = {111855},
+  doi = {10.1016/j.patcog.2025.111855},
+  url = {https://www.sciencedirect.com/science/article/pii/S0031320325005151},
+  issn = {0031-3203},
+  publisher = {Elsevier},
+  abstract = {Dynamic systems such as sensor networks, social networks, computer networks, and power grids can be modeled as evolving graphs, requiring effective methods to monitor structural changes in real-time. In this paper, we present a change detection framework for detecting global structural changes in evolving graphs. This framework combines multiple martingale-based change detectors using different graph features. We establish a mathematical relationship between an additive martingale (derived from the multiple graph features) and the Shapley Additive Explanations (SHAP) method, demonstrating that martingale values at detected change-points directly quantify each feature's contribution to the detected change. Thus, graph features with significantly high martingale values provide meaningful explanations for detected structural changes. We demonstrate our approach using three synthetic graph types (random topology, scale-free, and small-world), showing how different graph features vary in detection performance across network types. This highlights the importance of using multiple graph features, as relying on any single feature might not detect certain changes. Additionally, we apply our approach to the MIT Reality dataset to identify changes in social interactions among dormitory students at some special time periods. Our results reveal which graph features best characterize the real-world network changes during these special time periods.},
+  keywords = {Conformal prediction; Martingale; Change detection; Shapley Additive Explanations (SHAP) Method; Explainable AI; Evolving graphs}
 }
 ```
 
