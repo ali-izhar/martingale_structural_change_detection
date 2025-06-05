@@ -16,9 +16,54 @@ Key features:
 - Multiple graph models (SBM, Barabási-Albert, Watts-Strogatz, Erdős-Rényi)
 - Advanced martingale-based detection with various betting functions
 - Explainable AI using SHAP (SHapley Additive exPlanations) for result interpretation
-- Comprehensive visualization suite for analysis and result presentation
 
 ![Overview Explanation](assets/overview-explanation.png)
+
+After running detection, you can generate detailed visualizations with the provided utilities:
+
+```bash
+# Generate martingale plots
+python src/utils/plot_martingale.py -f ./results/your_results_folder/detection_results.xlsx
+
+# Generate SHAP analysis plots
+python src/utils/plot_shap.py -f ./results/your_results_folder/detection_results.xlsx
+```
+
+### Martingale Tracking
+
+The sum martingale plot shows how the martingale increases when change points occur. Vertical dashed lines indicate true change points, while markers show where the algorithm detected the changes.
+
+![Sum Martingales](assets/mit_sum_martingales.png)
+
+### Individual Feature Martingales
+
+The individual feature martingales demonstrate which network features contribute most to change detection:
+
+![Individual Martingales](assets/mit_individual_martingales.png)
+
+### Feature Importance Analysis with SHAP
+
+SHAP values provide explainable insights into how each network feature contributes to change detection:
+
+![SHAP Analysis](assets/shap_explanation_analysis.png)
+
+### Different Betting Functions
+
+Martingale performance varies based on the betting function used:
+
+![Martingale by Betting Function](assets/martingale_by_betting_function.png)
+
+### Network Visualization
+
+Synthetic networks used for benchmarking:
+
+![Synthetic Networks](assets/synthetic_networks.png)
+
+### Real-World Applications
+
+MIT Reality Mining dataset analysis, showing evolving social network structure:
+
+![MIT Reality Daily Graphs](assets/mit_reality_daily_graphs.png)
 
 ## Installation
 
@@ -126,56 +171,6 @@ Summary Statistics:
 ╰────────────────┴───────────────╯
 ```
 
-### Visualization Tools
-
-After running detection, you can generate detailed visualizations with the provided utilities:
-
-```bash
-# Generate martingale plots
-python src/utils/plot_martingale.py -f ./results/your_results_folder/detection_results.xlsx
-
-# Generate SHAP analysis plots
-python src/utils/plot_shap.py -f ./results/your_results_folder/detection_results.xlsx
-```
-
-## Example Visualizations
-
-### Martingale Tracking
-
-The sum martingale plot shows how the martingale increases when change points occur. Vertical dashed lines indicate true change points, while markers show where the algorithm detected the changes.
-
-![Sum Martingales](assets/mit_sum_martingales.png)
-
-### Individual Feature Martingales
-
-The individual feature martingales demonstrate which network features contribute most to change detection:
-
-![Individual Martingales](assets/mit_individual_martingales.png)
-
-### Feature Importance Analysis with SHAP
-
-SHAP values provide explainable insights into how each network feature contributes to change detection:
-
-![SHAP Analysis](assets/shap_explanation_analysis.png)
-
-### Different Betting Functions
-
-Martingale performance varies based on the betting function used:
-
-![Martingale by Betting Function](assets/martingale_by_betting_function.png)
-
-### Network Visualization
-
-Synthetic networks used for benchmarking:
-
-![Synthetic Networks](assets/synthetic_networks.png)
-
-### Real-World Applications
-
-MIT Reality Mining dataset analysis, showing evolving social network structure:
-
-![MIT Reality Daily Graphs](assets/mit_reality_daily_graphs.png)
-
 ## Algorithm Overview
 
 The detection pipeline consists of several key components:
@@ -223,7 +218,7 @@ If you use this code or method in your research, please cite our paper:
 
 1. Ho, S. S., et al. (2005). "A martingale framework for concept change detection in time-varying data streams." 
 ICML.
-2. Ho, S. S., Kairamkonda, T. T., & Ali, I. (2024). Change point detection in evolving graph using martingale. In Proceedings of the 39th ACM/SIGAPP Symposium on Applied Computing (pp. 466-473).
+2. Ho, S. S., & Kairamkonda, T. T. (2024). Change point detection in evolving graph using martingale. In Proceedings of the 39th ACM/SIGAPP Symposium on Applied Computing (pp. 466-473).
 3. Lundberg, S. M., & Lee, S. I. (2017). "A unified approach to interpreting model predictions." NeurIPS.
 4. Newman, M. E. J. (2010). "Networks: An Introduction." Oxford University Press.
 
