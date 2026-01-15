@@ -1,3 +1,5 @@
+> For code updates and newer results, refer to the new repository: [anomaly detection](https://github.com/ali-izhar/anomaly_detection)
+
 # Change Point Detection in Dynamic Networks
 
 A robust framework for detecting and explaining significant structural changes in dynamic networks using martingale-based methods with explainable AI integration.
