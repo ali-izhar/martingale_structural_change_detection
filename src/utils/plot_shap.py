@@ -231,7 +231,9 @@ def compute_shap_values(
 
     print(f"Shape of feature matrix after handling NaNs: {X.shape}")
 
-    # Fit linear model to approximate the sum martingale
+    # Fit linear model to recover the per-feature weights. The sum martingale is
+    # exactly the row-sum of the per-feature martingales, so f(M) = Σ_j w_j M_j is
+    # linear with w_j = 1 (R² == 1, recovered numerically below).
     model = LinearRegression(fit_intercept=False)
     model.fit(X, y)
 
@@ -240,27 +242,19 @@ def compute_shap_values(
     r2 = np.corrcoef(predictions, y)[0, 1] ** 2
     print(f"Linear model R² score: {r2:.6f}")
 
-    # Compute SHAP values
-    try:
-        # Sample background data for the explainer
-        background_indices = np.random.choice(
-            len(X), size=min(100, len(X)), replace=False
-        )
-        background = X.iloc[background_indices]
-
-        # Create explainer and compute SHAP values
-        explainer = shap.KernelExplainer(model.predict, background)
-        shap_values = explainer.shap_values(X)
-
-        print("Successfully computed SHAP values using KernelExplainer")
-    except Exception as e:
-        print(f"Error computing SHAP values with KernelExplainer: {e}")
-        print("Using feature values * coefficients as SHAP approximation")
-
-        # Approximate SHAP values for linear model
-        shap_values = np.zeros(X.shape)
-        for i, col in enumerate(X.columns):
-            shap_values[:, i] = X[col].values * model.coef_[i]
+    # NOTE: report the genuine signed Shapley value, not a normalized
+    # share. For the exactly-linear model f(M) = Σ_j w_j M_j, Linear SHAP
+    # (Lundberg & Lee, NeurIPS 2017, Corollary 1) gives the EXACT Shapley value
+    #   φ_j = w_j (M_j − E[M_j])
+    # where E[M_j] is the background expectation (column mean). This closed form
+    # is deterministic and matches a (seeded) KernelExplainer on this linear
+    # model to ~1e-14, so we compute it analytically instead of relying on
+    # stochastic background sampling (the previous unseeded np.random.choice).
+    # It is signed: φ_j < 0 for features below their baseline.
+    coef = np.asarray(model.coef_, dtype=float)  # ≈ 1 per feature
+    background_mean = X.mean(axis=0).values  # E[M_j] over all background rows
+    shap_values = (X.values - background_mean) * coef  # signed φ_j, shape (n, d)
+    print("Computed exact analytic Linear SHAP values (signed, baseline-subtracted)")
 
     # Find detection points from Detection Details or threshold crossings
     detection_indices = []
@@ -319,28 +313,36 @@ def compute_shap_values(
             total = sum(feature_values)
 
             if total > 0:
+                # NOTE: the genuine, signed SHAP contribution is the
+                # baseline-subtracted Shapley value φ_j = M_j − E[M_j] (the row
+                # of the analytic Linear SHAP matrix at this detection index).
+                # The normalized share M_j/ΣM_j is kept ONLY as an explicitly
+                # renamed diagnostic column, NOT labeled as a SHAP value.
+                phi = shap_values[idx]
                 contrib_data = {
                     "Feature": get_display_names(feature_cols),
                     "Martingale Value": feature_values,
-                    "Contribution %": (feature_values / total) * 100,
+                    "SHAP Value": phi,  # signed φ_j = M_j − E[M_j]
+                    "Normalized Martingale Share %": (feature_values / total) * 100,
                     "Detection Point": detection_time,
                 }
 
-                # Create DataFrame and sort by contribution
+                # Create DataFrame and sort by the (signed) SHAP value.
                 contrib_df = pd.DataFrame(contrib_data)
-                contrib_df = contrib_df.sort_values("Contribution %", ascending=False)
+                contrib_df = contrib_df.sort_values("SHAP Value", ascending=False)
 
                 contributions.append(contrib_df)
 
-                print(f"\nFeature contributions at detection point {detection_time}:")
+                print(f"\nFeature SHAP contributions at detection point {detection_time}:")
                 print(
-                    f"{'Feature':<15} {'Martingale Value':<15} {'Contribution %':<15}"
+                    f"{'Feature':<15} {'Martingale Value':<18} {'SHAP Value':<15} {'Share %':<10}"
                 )
-                print("-" * 50)
+                print("-" * 60)
 
                 for _, row in contrib_df.iterrows():
                     print(
-                        f"{row['Feature']:<15} {row['Martingale Value']:<15.6f} {row['Contribution %']:<15.2f}"
+                        f"{row['Feature']:<15} {row['Martingale Value']:<18.6f} "
+                        f"{row['SHAP Value']:<15.6f} {row['Normalized Martingale Share %']:<10.2f}"
                     )
 
     if contributions:
@@ -692,14 +694,18 @@ def plot_shap_over_time(
         for idx in detection_indices:
             if 0 <= idx < len(df):
                 detection_time = timesteps[idx]
+                # NOTE: carry the genuine signed SHAP value φ_j (from the
+                # analytic Linear SHAP matrix) alongside the normalized share,
+                # which is explicitly renamed so it is never read as a SHAP value.
                 contrib_data = {
                     "Feature": feature_names,
                     "Martingale Value": df[feature_cols].iloc[idx].values,
-                    "Contribution %": contributions[idx] * 100,
+                    "SHAP Value": shap_values[idx],  # signed φ_j = M_j − E[M_j]
+                    "Normalized Martingale Share %": contributions[idx] * 100,
                     "Detection Point": detection_time,
                 }
                 contrib_df = pd.DataFrame(contrib_data)
-                contrib_df = contrib_df.sort_values("Contribution %", ascending=False)
+                contrib_df = contrib_df.sort_values("SHAP Value", ascending=False)
                 contributions_list.append(contrib_df)
 
     if contributions_list:
@@ -719,20 +725,29 @@ def plot_feature_contributions(contributions_df, output_path):
         print("No feature contributions to plot")
         return
 
+    # NOTE: plot the (renamed) normalized martingale share, which is a
+    # diagnostic non-negative share — explicitly NOT a SHAP value. The signed
+    # SHAP value φ_j is carried in the "SHAP Value" column of the CSV.
+    share_col = (
+        "Normalized Martingale Share %"
+        if "Normalized Martingale Share %" in contributions_df.columns
+        else "Contribution %"
+    )
+
     # Group by feature and compute average contribution
     avg_contrib = (
-        contributions_df.groupby("Feature")["Contribution %"].mean().reset_index()
+        contributions_df.groupby("Feature")[share_col].mean().reset_index()
     )
     avg_contrib = avg_contrib.sort_values(
-        "Contribution %", ascending=True
+        share_col, ascending=True
     )  # Ascending for horizontal bars
 
     # Create colors based on contribution percentage
-    colors = plt.cm.YlOrRd(avg_contrib["Contribution %"] / 100)
+    colors = plt.cm.YlOrRd(avg_contrib[share_col] / 100)
 
     # Create bar chart
     plt.figure(figsize=(10, 6))
-    bars = plt.barh(avg_contrib["Feature"], avg_contrib["Contribution %"], color=colors)
+    bars = plt.barh(avg_contrib["Feature"], avg_contrib[share_col], color=colors)
 
     # Add value labels to bars
     for bar in bars:
@@ -741,7 +756,7 @@ def plot_feature_contributions(contributions_df, output_path):
             width + 1, bar.get_y() + bar.get_height() / 2, f"{width:.1f}%", va="center"
         )
 
-    plt.xlabel("Average Contribution %")
+    plt.xlabel("Average Normalized Martingale Share %")
     plt.title("Feature Contributions to Anomaly Detection")
     plt.grid(axis="x", alpha=0.3)
     plt.tight_layout()

@@ -20,7 +20,7 @@ The detector supports two methods:
 - Multiview: Processes multiple features independently and then combines evidence.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import (
     Any,
     Dict,
@@ -135,30 +135,50 @@ class ChangePointDetector(Generic[ScalarType]):
             config: Detector configuration. If None, uses default configuration.
         """
         # Use provided configuration or fall back to the default settings.
-        self.config = config or DetectorConfig()
+        base_config = config or DetectorConfig()
 
-        # If no betting function config is provided, set a default configuration.
-        if self.config.betting_func_config is None:
+        # NOTE: DetectorConfig is a frozen dataclass, so assigning to
+        # self.config.betting_func_config raised FrozenInstanceError whenever an
+        # explicit betting config (random_seed=None) was combined with a non-None
+        # betting_random_state. Resolve the betting config first, then build the
+        # final immutable config once via dataclasses.replace() instead of
+        # mutating the frozen instance.
+        resolved_betting_config = base_config.betting_func_config
+        if resolved_betting_config is None:
             # Create default config, using betting_random_state if available
-            self.config.betting_func_config = BettingFunctionConfig(
+            resolved_betting_config = BettingFunctionConfig(
                 name="power",
                 params={"epsilon": 0.7},
-                random_seed=self.config.betting_random_state,
+                random_seed=base_config.betting_random_state,
             )
             logger.debug(
-                f"No betting function config provided. Using default: {self.config.betting_func_config}"
+                f"No betting function config provided. Using default: {resolved_betting_config}"
             )
         elif (
-            self.config.betting_random_state is not None
-            and self.config.betting_func_config.random_seed is None
+            base_config.betting_random_state is not None
+            and resolved_betting_config.random_seed is None
         ):
             # If betting_random_state is provided but not already set in the betting function config,
             # create a new betting function config with the random seed
-            self.config.betting_func_config = BettingFunctionConfig(
-                name=self.config.betting_func_config.name,
-                params=self.config.betting_func_config.params,
-                random_seed=self.config.betting_random_state,
+            resolved_betting_config = BettingFunctionConfig(
+                name=resolved_betting_config.name,
+                params=resolved_betting_config.params,
+                random_seed=base_config.betting_random_state,
             )
+
+        # Build the final frozen config once (no in-place mutation).
+        if resolved_betting_config is not base_config.betting_func_config:
+            self.config = replace(
+                base_config, betting_func_config=resolved_betting_config
+            )
+        else:
+            self.config = base_config
+
+        # Invariant: the resolve block above always yields a non-None betting
+        # config (a default is created when none is supplied). Asserting it here
+        # documents the guarantee and restores static-type narrowing that was
+        # lost when switching from in-place assignment to dataclasses.replace().
+        assert self.config.betting_func_config is not None
 
         # Initialize the internal state of the detector.
         self._reset_state()

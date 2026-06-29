@@ -86,11 +86,17 @@ class MartingaleState:
     traditional_change_points: List[int] = field(default_factory=list)
 
     def reset(self):
-        """Reset martingale state after a detection event."""
+        """Reset martingale state after a detection event.
+
+        NOTE: does NOT append an extra 1.0 to ``saved_traditional``.
+        The crossing value at the detection step is already recorded by the
+        caller's per-step append; the reset only restores the running
+        martingale to its baseline 1.0 so the NEXT step's betting starts from 1.
+        Injecting a baseline element here previously shifted the time axis and
+        made the returned series longer than N (one extra element per detection).
+        """
         self.window.clear()
         self.traditional_martingale = 1.0
-        # Append reset values to the history for continuity
-        self.saved_traditional.append(1.0)
 
 
 class MartingaleResult(Protocol):

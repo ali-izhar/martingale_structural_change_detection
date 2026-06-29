@@ -563,8 +563,11 @@ class CustomThresholdModel(BaseEstimator, ClassifierMixin):
 
         # Compute SHAP values
         try:
-            # Sample background data for the explainer
-            background_indices = np.random.choice(
+            # NOTE: seed the background sampling so SHAP figures are
+            # reproducible. Previously used the unseeded global np.random.choice.
+            # Seed defaults to 42 (the ShapConfig default seed).
+            shap_rng = np.random.default_rng(42)
+            background_indices = shap_rng.choice(
                 len(X), size=min(100, len(X)), replace=False
             )
             background = X.iloc[background_indices]

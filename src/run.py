@@ -70,6 +70,11 @@ def apply_cli_overrides(
         updated_config["model"]["network"] = args.network
         logger.info(f"Overriding network type: {args.network}")
 
+    # Override graph-generation seed (reproducibility)
+    if args.seed is not None:
+        updated_config["model"]["seed"] = args.seed
+        logger.info(f"Overriding graph-generation seed: {args.seed}")
+
     # Override threshold
     if args.threshold is not None:
         updated_config["detection"]["threshold"] = args.threshold
@@ -167,6 +172,13 @@ def main() -> None:
         type=str,
         choices=["sbm", "ba", "ws", "er"],
         help="Network type (sbm: Stochastic Block Model, ba: Barabási–Albert, ws: Watts-Strogatz, er: Erdős–Rényi)",
+    )
+    parser.add_argument(
+        "--seed",
+        "-s",
+        type=int,
+        help="Graph-generation seed for reproducible sequences (overrides model.seed)",
+        dest="seed",
     )
     parser.add_argument(
         "--threshold",

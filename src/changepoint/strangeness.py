@@ -42,7 +42,6 @@ from dataclasses import dataclass
 from typing import List, Optional, Union, TypeVar, final
 import logging
 import numpy as np
-import random
 from sklearn.cluster import KMeans, MiniBatchKMeans
 
 from .distance import DistanceConfig, compute_cluster_distances
@@ -207,17 +206,27 @@ def strangeness_point(
 @final
 def get_pvalue(
     strangeness: Union[List[float], np.ndarray],
-    random_state: Optional[int] = None,
+    rng: Optional[np.random.Generator] = None,
 ) -> float:
     """Compute conformal p-value for the last strangeness value.
 
-    Uses Vovk's tie-breaking rule:
-    p = (#{i: α(xᵢ) > α(xₙ)} + θ#{i: α(xᵢ) = α(xₙ)}) / n
-    where θ ~ U(0,1) and xₙ is the new point.
+    Uses Vovk's smoothed-conformal tie-breaking rule:
+    p_n = (#{i: α(xᵢ) > α(xₙ)} + θ_n #{i: α(xᵢ) = α(xₙ)}) / n
+    where θ_n ~ U(0,1) and xₙ is the new point.
+
+    The randomization θ_n MUST be drawn fresh i.i.d. ~ U(0,1) at every call
+    for p_n to be exactly uniform and for the resulting martingale
+    M_n = ∏ g(p_i) to satisfy E[M_n | F_{n-1}] = M_{n-1}
+    (Volkhonskiy COPA 2017 Eq.1; Fedorova ICML 2012 Alg.1).
 
     Args:
-        strangeness: Sequence of strangeness values, last element is the new point
-        random_state: Random seed for reproducibility
+        strangeness: Sequence of strangeness values, last element is the new point.
+        rng: A persistent ``numpy.random.Generator`` advanced once per call so
+            that θ_n varies across timesteps while remaining reproducible given
+            the seed used to construct it. The caller is responsible for
+            creating and reusing this generator across the per-sample loop;
+            do NOT pass a freshly-seeded generator each step. If ``None`` a
+            fresh (nondeterministic) generator is used as a fallback.
 
     Returns:
         Conformal p-value in [0,1]
@@ -233,9 +242,11 @@ def get_pvalue(
         if len(strangeness) == 0:
             raise ValueError("Empty strangeness sequence")
 
-        # Set the random seed if provided to guarantee reproducibility.
-        if random_state is not None:
-            random.seed(random_state)
+        # NOTE: no longer call random.seed()/np.random.seed() (which
+        # mutated global RNG state and pinned θ to a constant across steps).
+        # Draw θ_n fresh from the persistent generator instead.
+        if rng is None:
+            rng = np.random.default_rng()
 
         # Convert the sequence to a numpy array for vectorized operations.
         s_array = np.asarray(strangeness)
@@ -247,8 +258,8 @@ def get_pvalue(
         # Count how many points have equal strangeness (to be broken by randomness).
         num_equal = np.sum(s_array == current)
 
-        # Generate a random number in [0,1] for tie-breaking.
-        theta = random.random()
+        # Generate a fresh random number θ_n in [0,1] for smoothed tie-breaking.
+        theta = rng.random()
 
         # Compute the conformal p-value based on Vovk's tie-breaking rule.
         pvalue = (num_larger + theta * num_equal) / len(s_array)

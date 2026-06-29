@@ -29,14 +29,35 @@ Pattern Recognition, 169, 111855.
 ```bash
 git clone https://github.com/ali-izhar/martingale_structural_change_detection.git
 cd martingale_structural_change_detection
+python -m venv venv && source venv/bin/activate   # NumPy must be < 2.0
 pip install -r requirements.txt
 python src/run.py -c src/configs/algorithm.yaml
 ```
 
+This generates a graph sequence, runs the multiview martingale detector, and
+writes results to `results/<network>_<distance>_<betting>_<timestamp>/detection_results.xlsx`
+(sheets `Trial1`, `Detection Summary`, `Detection Details`). A detection report
+is printed to the console.
+
+**Determinism.** Runs are reproducible: `model.seed` in
+`src/configs/algorithm.yaml` (default `42`) seeds graph generation, and
+`trials.random_seeds` seeds the detector, so repeated runs are bit-for-bit
+identical. Set `model.seed: null` (or pass `-s <int>`) for a fresh random
+sequence each run.
+
 Override defaults with `-n <trials>`, `-net {sbm,ba,ws,er}`,
 `-bf {power,exponential,mixture,beta,...}`, `-l <threshold>`,
-`-d {euclidean,mahalanobis,cosine,...}`. Plot outputs with
-`src/utils/plot_martingale.py` and `src/utils/plot_shap.py`.
+`-d {euclidean,mahalanobis,cosine,...}`, `-s <seed>`.
+
+**Figures.** Plotting is a separate step that reads the produced workbook:
+
+```bash
+python src/utils/plot_martingale.py -f results/<run>/detection_results.xlsx -o results/<run> -t 60
+python src/utils/plot_shap.py        -f results/<run>/detection_results.xlsx -o results/<run> -t 60
+```
+
+`plot_shap.py` reports per-feature SHAP attributions (signed Linear-SHAP values
+φ_j = M_j − E[M_j]) alongside the normalized martingale share at each detection.
 
 ## Citation
 

@@ -161,7 +161,30 @@ class GraphChangeDetection:
 
         # Get model-specific configuration
         model_config = get_config(model_name)
-        return generator.generate_sequence(model_config["params"].__dict__)
+
+        # Copy params so we never mutate the cached config dataclass.
+        params = dict(model_config["params"].__dict__)
+
+        # Deterministic graph generation (reproducibility fix): the generator
+        # draws a fresh random seed whenever params["seed"] is None, which made
+        # the change-point placement and every graph realization non-reproducible
+        # even with trials.random_seeds fixed. Inject an explicit generation seed
+        # so the whole pipeline is bit-reproducible from a single knob.
+        #   precedence: model.seed (if present)  ->  trials.random_seeds base seed
+        # Set model.seed: null in the config to restore the old random behavior.
+        gen_seed = self.config.get("model", {}).get("seed", "__unset__")
+        if gen_seed == "__unset__":
+            base = self.config.get("trials", {}).get("random_seeds")
+            if isinstance(base, (list, tuple)):
+                base = base[0] if len(base) > 0 else None
+            gen_seed = base
+        if gen_seed is not None:
+            params["seed"] = int(gen_seed)
+            logger.info(f"Using deterministic graph-generation seed: {params['seed']}")
+        else:
+            logger.info("No graph-generation seed set; sequence will be random")
+
+        return generator.generate_sequence(params)
 
     def _extract_features(self, graphs):
         """Extract features from graph sequence.
@@ -179,8 +202,12 @@ class GraphChangeDetection:
 
         for adj_matrix in graphs:
             graph = adjacency_to_graph(adj_matrix)
-            raw_features = feature_extractor.get_features(graph)
-            numeric_features = feature_extractor.get_numeric_features(graph)
+            # Single extract() per extractor for both raw + numeric (the raw and
+            # numeric paths previously recomputed the same deterministic features
+            # twice). Bit-for-bit identical to the two separate calls below.
+            raw_features, numeric_features = feature_extractor.get_features_and_numeric(
+                graph
+            )
             features_raw.append(raw_features)
             features_numeric.append(
                 [numeric_features[name] for name in self.config["features"]]

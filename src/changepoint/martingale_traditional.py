@@ -63,6 +63,13 @@ def compute_traditional_martingale(
     # Obtain the betting function callable based on the betting_func_config.
     betting_function = create_betting_function(config.betting_func_config)
 
+    # NOTE: create the persistent smoothed-conformal RNG ONCE, before the
+    # per-sample loop, seeded deterministically from the configured seed. θ_n is
+    # then drawn fresh at every timestep (decorrelated across steps) while staying
+    # bit-for-bit reproducible given the seed.
+    pvalue_seed = config.pvalue_seed or config.random_state
+    pvalue_rng = np.random.default_rng(pvalue_seed)
+
     # Log input dimensions and configuration details.
     logger.debug("Single-view Traditional Martingale Input Dimensions:")
     logger.debug(f"  Sequence length: {len(data)}")
@@ -92,9 +99,8 @@ def compute_traditional_martingale(
                 )
 
             # Compute conformal p-value using the strangeness scores.
-            pvalue = get_pvalue(
-                s_vals, random_state=config.pvalue_seed or config.random_state
-            )
+            # Pass the persistent generator so θ_n is fresh each step (FIX 1).
+            pvalue = get_pvalue(s_vals, rng=pvalue_rng)
 
             # Update traditional martingale using the betting function.
             prev_trad = state.traditional_martingale
@@ -108,7 +114,9 @@ def compute_traditional_martingale(
             detected_trad = False
             if config.reset and new_trad > config.threshold:
                 detected_trad = True
-                state.traditional_change_points.append(i - 1)
+                # NOTE: record at the crossing index i (was i-1).
+                # Volkhonskiy stopping rule τ = inf{n : M_n ≥ h}; no -1 offset.
+                state.traditional_change_points.append(i)
 
             # Update window or reset state if a change is detected.
             if detected_trad:
@@ -119,10 +127,15 @@ def compute_traditional_martingale(
                 state.window.append(point)
 
         # Return the computed martingale histories and detected change points.
+        # NOTE: saved_traditional = [1.0(init), m_0, ..., m_{N-1}] now has
+        # length N+1 exactly (reset no longer injects an extra baseline element),
+        # so [1:1+N] is the length-N, time-aligned series: index t = martingale
+        # after processing sample t (the crossing value at a detection step t).
+        n_samples = len(data)
         return {
             "traditional_change_points": state.traditional_change_points,
             "traditional_martingales": np.array(
-                state.saved_traditional[1:], dtype=float
+                state.saved_traditional[1 : 1 + n_samples], dtype=float
             ),
         }
 
@@ -172,6 +185,17 @@ def multiview_traditional_martingale(
     # Get the betting function based on the provided configuration.
     betting_function = create_betting_function(config.betting_func_config)
 
+    # NOTE: create one persistent smoothed-conformal RNG PER FEATURE,
+    # ONCE before the per-sample loop. Each feature j gets its own independent
+    # stream via SeedSequence(seed).spawn(num_features) so the θ_n draws are
+    # decorrelated across features yet fully reproducible given the seed.
+    pvalue_seed = config.pvalue_seed or config.random_state
+    num_features = len(data)
+    pvalue_rngs = [
+        np.random.default_rng(s)
+        for s in np.random.SeedSequence(pvalue_seed).spawn(num_features)
+    ]
+
     # Log input dimensions and configuration details.
     logger.debug("Multiview Traditional Martingale Input Dimensions:")
     logger.debug(f"  Number of features: {len(data)}")
@@ -183,7 +207,7 @@ def multiview_traditional_martingale(
     logger.debug("-" * 50)
 
     try:
-        num_features = len(data)
+        # num_features already computed above for the per-feature RNGs.
         num_samples = len(data[0])
 
         idx = 0
@@ -222,10 +246,9 @@ def multiview_traditional_martingale(
                             config=config.strangeness_config,
                             random_state=config.strangeness_seed or config.random_state,
                         )
-                    # Compute p-value and update traditional martingale for feature j using M_{t-1}
-                    pv = get_pvalue(
-                        s_vals, random_state=config.pvalue_seed or config.random_state
-                    )
+                    # Compute p-value and update traditional martingale for feature j using M_{t-1}.
+                    # draw θ_n fresh from feature j's own persistent generator.
+                    pv = get_pvalue(s_vals, rng=pvalue_rngs[j])
                     prev_val = prev_traditional_t_minus_1[j]  # Use M_{t-1}
                     new_val = betting_function(prev_val, pv)
                     new_traditional.append(new_val)
@@ -241,7 +264,8 @@ def multiview_traditional_martingale(
 
                 # Check if traditional martingale crosses threshold
                 if total_traditional > config.threshold:
-                    state.traditional_change_points.append(i - 1)
+                    # NOTE: record at the crossing index i (was i-1).
+                    state.traditional_change_points.append(i)
 
                     # Update the is_detection flag for this timestep
                     state.has_detection = True
@@ -256,16 +280,23 @@ def multiview_traditional_martingale(
             idx = batch_end
 
         # Return the aggregated results as numpy arrays.
+        # NOTE: record_traditional_values(i, ...) writes index t = sample t
+        # (index 0 = sample 0, overwriting the initial 1.0 placeholder), so the
+        # time-aligned series is indices [0 : num_samples], length exactly N.
+        # The previous `[1:]` slice dropped sample 0 (length N-1, off-by-one); a
+        # trailing reset baseline (written at index num_samples only when a
+        # detection lands on the last sample) is excluded by the [:num_samples] cap.
         return {
             "traditional_change_points": state.traditional_change_points,
             "traditional_sum_martingales": np.array(
-                state.traditional_sum[1:], dtype=float
+                state.traditional_sum[:num_samples], dtype=float
             ),
             "traditional_avg_martingales": np.array(
-                state.traditional_avg[1:], dtype=float
+                state.traditional_avg[:num_samples], dtype=float
             ),
             "individual_traditional_martingales": [
-                np.array(m[1:], dtype=float) for m in state.individual_traditional
+                np.array(m[:num_samples], dtype=float)
+                for m in state.individual_traditional
             ],
         }
 

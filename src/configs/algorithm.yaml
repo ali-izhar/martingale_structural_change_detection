@@ -17,6 +17,8 @@ trials:
 model:
   type: "multiview"  # or "single_view"
   network: "sbm"  # choices: ["ba", "ws", "er", "sbm"
+  seed: 42  # Graph-generation seed for reproducible sequences. Set to null for a
+            # random sequence each run. If omitted, falls back to trials.random_seeds.
 
 # Detection parameters
 detection:

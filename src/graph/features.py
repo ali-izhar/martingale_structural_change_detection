@@ -49,6 +49,23 @@ class BaseFeatureExtractor(ABC):
         """
         pass
 
+    @abstractmethod
+    def extract_numeric_from_raw(
+        self, raw_features: Dict[str, List[float]]
+    ) -> Dict[str, float]:
+        """Compute numeric summary features from already-extracted raw features.
+
+        Declared on the base class so callers holding a ``BaseFeatureExtractor``
+        reference (e.g. ``NetworkFeatureExtractor.get_features_and_numeric``) can
+        invoke it in a type-sound way. All concrete extractors implement it.
+
+        Args:
+            raw_features: Output of ``extract`` for the same graph.
+        Returns:
+            Dict mapping feature names to single numeric values.
+        """
+        pass
+
 
 class BasicMetricsExtractor(BaseFeatureExtractor):
     """Extracts basic network metrics (degrees, density, clustering)."""
@@ -98,7 +115,18 @@ class BasicMetricsExtractor(BaseFeatureExtractor):
             - density: Graph density
             - mean_clustering: Average clustering coefficient
         """
-        raw_features = self.extract(graph)
+        return self.extract_numeric_from_raw(self.extract(graph))
+
+    def extract_numeric_from_raw(
+        self, raw_features: Dict[str, List[float]]
+    ) -> Dict[str, float]:
+        """Compute numeric summaries from already-extracted raw features.
+
+        Behavior-preserving split of ``extract_numeric`` so callers that need
+        both the raw and numeric features can avoid recomputing ``extract``.
+        The reductions are identical operations on the identical (deterministic)
+        raw values, so results are bit-for-bit unchanged.
+        """
         return {
             "mean_degree": (
                 np.mean(raw_features["degrees"]) if raw_features["degrees"] else 0.0
@@ -144,7 +172,15 @@ class CentralityMetricsExtractor(BaseFeatureExtractor):
         eigenvalues, eigenvectors = np.linalg.eigh(adj_matrix)
         largest_eigenvalue_idx = np.argmax(eigenvalues)
         eigenvector_values = np.abs(eigenvectors[:, largest_eigenvalue_idx])
-        eigenvector_values = eigenvector_values / eigenvector_values.sum()
+        # NOTE: normalize the eigenvector-centrality vector to UNIT L2
+        # NORM (the standard convention, matching networkx
+        # eigenvector_centrality_numpy), not sum-to-1. L1 normalization forced
+        # np.mean(v) == 1/n for every graph, making mean_eigenvector a constant,
+        # information-free feature. With ‖v‖₂=1 the mean ranges ~1/n…1/√n and is
+        # structure-sensitive. abs() (sign convention) is applied before L2.
+        l2_norm = np.linalg.norm(eigenvector_values)
+        if l2_norm > 0:
+            eigenvector_values = eigenvector_values / l2_norm
         eigenvector_values = list(eigenvector_values)
 
         # Compute closeness centrality
@@ -170,7 +206,15 @@ class CentralityMetricsExtractor(BaseFeatureExtractor):
             - mean_eigenvector: Average eigenvector centrality
             - mean_closeness: Average closeness centrality
         """
-        raw_features = self.extract(graph)
+        return self.extract_numeric_from_raw(self.extract(graph))
+
+    def extract_numeric_from_raw(
+        self, raw_features: Dict[str, List[float]]
+    ) -> Dict[str, float]:
+        """Compute numeric summaries from already-extracted raw features.
+
+        Behavior-preserving split of ``extract_numeric`` (see BasicMetricsExtractor).
+        """
         return {
             "mean_betweenness": (
                 np.mean(raw_features["betweenness"])
@@ -240,7 +284,15 @@ class SpectralMetricsExtractor(BaseFeatureExtractor):
             - max_singular_value: Largest singular value
             - min_nonzero_laplacian: Smallest non-zero Laplacian eigenvalue
         """
-        raw_features = self.extract(graph)
+        return self.extract_numeric_from_raw(self.extract(graph))
+
+    def extract_numeric_from_raw(
+        self, raw_features: Dict[str, List[float]]
+    ) -> Dict[str, float]:
+        """Compute numeric summaries from already-extracted raw features.
+
+        Behavior-preserving split of ``extract_numeric`` (see BasicMetricsExtractor).
+        """
         return {
             "max_singular_value": (
                 max(raw_features["singular_values"])
@@ -321,3 +373,33 @@ class NetworkFeatureExtractor:
                 logger.warning(f"Unknown feature type: {ftype}")
 
         return features
+
+    def get_features_and_numeric(
+        self, graph: nx.Graph, feature_types: List[str] = None
+    ):
+        """Extract raw and numeric features with a single ``extract`` per extractor.
+
+        Behavior-preserving: returns exactly what ``get_features`` and
+        ``get_numeric_features`` return, but calls each extractor's (expensive,
+        deterministic) ``extract`` only once instead of twice. The numeric
+        summaries are derived from the very same raw values, so outputs are
+        bit-for-bit identical to calling the two methods separately.
+
+        Returns:
+            Tuple ``(raw_features, numeric_features)``.
+        """
+        if feature_types is None:
+            feature_types = self.available_features
+
+        raw_features: Dict[str, List[float]] = {}
+        numeric_features: Dict[str, float] = {}
+        for ftype in feature_types:
+            if ftype in self.extractors:
+                extractor = self.extractors[ftype]
+                raw = extractor.extract(graph)
+                raw_features.update(raw)
+                numeric_features.update(extractor.extract_numeric_from_raw(raw))
+            else:
+                logger.warning(f"Unknown feature type: {ftype}")
+
+        return raw_features, numeric_features
